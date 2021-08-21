@@ -347,6 +347,20 @@ var List = map[string]map[string]*Target{
 			},
 			NeedSyscallDefine: dontNeedSyscallDefine,
 		},
+		ARM64: {
+			PtrSize:      8,
+			PageSize:     1 << 14,
+			DataOffset:   512 << 24,
+			LittleEndian: true,
+			CCompiler:    "clang",
+			CFlags: []string{
+				"-arch arm64",
+				"-I", sourceDirVar + "/san",
+				// FIXME(HerrSpace): syscall was marked as deprecated on macos
+				"-Wno-deprecated-declarations",
+			},
+			NeedSyscallDefine: dontNeedSyscallDefine,
+		},
 	},
 	NetBSD: {
 		AMD64: {

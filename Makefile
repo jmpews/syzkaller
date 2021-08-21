@@ -302,6 +302,8 @@ presubmit_arch: descriptions
 	env HOSTOS=netbsd HOSTARCH=amd64 $(MAKE) host
 	env HOSTOS=openbsd HOSTARCH=amd64 $(MAKE) host
 	env HOSTOS=darwin HOSTARCH=amd64 $(MAKE) host
+	env HOSTOS=darwin HOSTARCH=arm64 $(MAKE) host
+	env TARGETOS=darwin TARGETARCH=arm64 $(MAKE) target
 	env TARGETOS=linux TARGETARCH=amd64 $(MAKE) target
 	env TARGETOS=linux TARGETARCH=amd64 SYZ_CLANG=yes $(MAKE) target
 	env TARGETOS=linux TARGETARCH=386 $(MAKE) target
