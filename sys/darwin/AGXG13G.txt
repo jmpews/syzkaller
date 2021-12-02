@@ -1,0 +1,388 @@
+resource mach_port_t[int32]
+
+type_IOGPUDeviceUserClient=5
+
+syz_open_service$IOGPUDeviceUserClient(name ptr[in, string("IOGPU")], type const[type_IOGPUDeviceUserClient], int32) mach_port_t
+
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_config(
+    conn mach_port_t, 
+    selector const[0],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 64]],
+    outputStructCnt const[64]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_name(
+    conn mach_port_t, 
+    selector const[1],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 64]],
+    outputStructCnt const[64]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_event_machine(
+    conn mach_port_t, 
+    selector const[2],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 536]],
+    outputStructCnt const[536]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_surface_info(
+    conn mach_port_t, 
+    selector const[3],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 16]],
+    outputStructCnt const[16]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_current_trace_filter(
+    conn mach_port_t, 
+    selector const[4],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 8]],
+    outputStructCnt const[8]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_device_info(
+    conn mach_port_t, 
+    selector const[5],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 32]],
+    outputStructCnt const[32]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_next_gid_group(
+    conn mach_port_t, 
+    selector const[6],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 16]],
+    outputStructCnt const[16]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_set_api_property(
+    conn mach_port_t, 
+    selector const[7],
+    input const[0],
+    inputCnt const[0],
+    inputStruct ptr[in, array[int8, 16]],
+    inputStructCnt const[16],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 4294967295]],
+    outputStructCnt const[4294967295]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_new_command_queue(
+    conn mach_port_t, 
+    selector const[8],
+    input const[0],
+    inputCnt const[0],
+    inputStruct ptr[in, array[int8, 1032]],
+    inputStructCnt const[1032],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 16]],
+    outputStructCnt const[16]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_delete_command_queue(
+    conn mach_port_t, 
+    selector const[9],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_new_resource(
+    conn mach_port_t, 
+    selector const[10],
+    input const[0],
+    inputCnt const[0],
+    inputStruct ptr[in, array[int8, 4294967295]],
+    inputStructCnt const[4294967295],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 4294967295]],
+    outputStructCnt const[4294967295]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_delete_resource(
+    conn mach_port_t, 
+    selector const[11],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_finish_object_event(
+    conn mach_port_t, 
+    selector const[12],
+    input ptr[in, array[int64, 2]],
+    inputCnt const[2],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_set_resource_purgeable(
+    conn mach_port_t, 
+    selector const[13],
+    input ptr[in, array[int64, 2]],
+    inputCnt const[2],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output ptr[out, array[int64, 1]],
+    outputCnt const[1],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_create_shmem(
+    conn mach_port_t, 
+    selector const[15],
+    input ptr[in, array[int64, 2]],
+    inputCnt const[2],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 16]],
+    outputStructCnt const[16]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_destroy_shmem(
+    conn mach_port_t, 
+    selector const[16],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_create_notificationqueue(
+    conn mach_port_t, 
+    selector const[17],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 16]],
+    outputStructCnt const[16]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_destroy_notificationqueue(
+    conn mach_port_t, 
+    selector const[18],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_shared_info(
+    conn mach_port_t, 
+    selector const[19],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 8]],
+    outputStructCnt const[8]
+    )
+
+
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_create_mtlfence(
+    conn mach_port_t, 
+    selector const[22],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 4]],
+    outputStructCnt const[4]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_destroy_mtlfence(
+    conn mach_port_t, 
+    selector const[23],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_create_mtlevent(
+    conn mach_port_t, 
+    selector const[24],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output ptr[out, array[int64, 2]],
+    outputCnt const[2],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_destroy_mtlevent(
+    conn mach_port_t, 
+    selector const[25],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_memory_data(
+    conn mach_port_t, 
+    selector const[26],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 48]],
+    outputStructCnt const[48]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_set_resources_purgeable(
+    conn mach_port_t, 
+    selector const[27],
+    input const[0],
+    inputCnt const[0],
+    inputStruct ptr[in, array[int8, 1]],
+    inputStructCnt const[1],
+    output const[0],
+    outputCnt const[0],
+    outputStruct ptr[out, array[int8, 4294967295]],
+    outputStructCnt const[4294967295]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_get_allocated_size(
+    conn mach_port_t, 
+    selector const[28],
+    input const[0],
+    inputCnt const[0],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output ptr[out, array[int64, 1]],
+    outputCnt const[1],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_set_command_queue_notification_queue(
+    conn mach_port_t, 
+    selector const[29],
+    input ptr[in, array[int64, 2]],
+    inputCnt const[2],
+    inputStruct const[0],
+    inputStructCnt const[0],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+
+
+command_buffer_arg {
+  unknown_0x0 int32
+  unknown_0x4 int32
+  queue_0x0 int64
+  queue_0x8 int64
+  unknown_0x10 int32
+  pad_0x14 const[0, int32]
+}
+
+IOGPUCommandQueueSubmitArgs {
+  pad_0x0 array[const[0, int8], 4]
+  command_buffer_args_count len[command_buffer_args]
+  command_buffer_args array[in, command_buffer_arg]
+}
+
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_submit_command_buffers(
+    conn mach_port_t, 
+    selector const[30],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    // inputStruct ptr[in, array[int8, 4294967295]], // fixup
+    // inputStructCnt const[4294967295],
+    inputStruct ptr[in, IOGPUCommandQueueSubmitArgs], // fixup
+    inputStructCnt bytesize[inputStruct, int32],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_set_command_queue_priority_and_background(
+    conn mach_port_t, 
+    selector const[31],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct ptr[in, array[int32, 3]], // fixup
+    inputStructCnt const[12],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
+syz_io_connect_call_method$IOGPUDeviceUserClient_s_set_command_queue_quality_of_service(
+    conn mach_port_t, 
+    selector const[32],
+    input ptr[in, array[int64, 1]],
+    inputCnt const[1],
+    inputStruct ptr[in, array[int32, 1]], // fixup
+    inputStructCnt const[4],
+    output const[0],
+    outputCnt const[0],
+    outputStruct const[0],
+    outputStructCnt const[0]
+    )
