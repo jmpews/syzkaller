@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -78,7 +79,35 @@ func (ctx *serializer) call(c *Call) {
 		}
 		ctx.arg(a)
 	}
-	ctx.printf(")\n")
+	ctx.printf(")")
+
+	anyChangedProps := false
+	c.Props.ForeachProp(func(name, key string, value reflect.Value) {
+		// reflect.Value.IsZero is added in go1.13, not available in Appengine SDK.
+		if reflect.DeepEqual(value.Interface(), reflect.Zero(value.Type()).Interface()) {
+			return
+		}
+
+		if !anyChangedProps {
+			ctx.printf(" (")
+			anyChangedProps = true
+		} else {
+			ctx.printf(", ")
+		}
+
+		ctx.printf(key)
+		switch kind := value.Kind(); kind {
+		case reflect.Int:
+			ctx.printf(": %d", value.Int())
+		default:
+			panic("unable to serialize call prop of type " + kind.String())
+		}
+	})
+	if anyChangedProps {
+		ctx.printf(")")
+	}
+
+	ctx.printf("\n")
 }
 
 func (ctx *serializer) arg(arg Arg) {
@@ -263,11 +292,8 @@ func (p *parser) parseProg() (*Prog, error) {
 		if meta == nil {
 			return nil, fmt.Errorf("unknown syscall %v", name)
 		}
-		c := &Call{
-			Meta:    meta,
-			Ret:     MakeReturnArg(meta.Ret),
-			Comment: p.comment,
-		}
+		c := MakeCall(meta, nil)
+		c.Comment = p.comment
 		prog.Calls = append(prog.Calls, c)
 		p.Parse('(')
 		for i := 0; p.Char() != ')'; i++ {
@@ -289,7 +315,13 @@ func (p *parser) parseProg() (*Prog, error) {
 			}
 		}
 		p.Parse(')')
-		p.SkipWs()
+
+		if !p.EOF() && p.Char() == '(' {
+			p.Parse('(')
+			c.Props = p.parseCallProps()
+			p.Parse(')')
+		}
+
 		if !p.EOF() {
 			if p.Char() != '#' {
 				return nil, fmt.Errorf("tailing data (line #%v)", p.l)
@@ -315,6 +347,43 @@ func (p *parser) parseProg() (*Prog, error) {
 		prog.Comments = append(prog.Comments, p.comment)
 	}
 	return prog, nil
+}
+
+func (p *parser) parseCallProps() CallProps {
+	nameToValue := map[string]reflect.Value{}
+	callProps := CallProps{}
+	callProps.ForeachProp(func(_, key string, value reflect.Value) {
+		nameToValue[key] = value
+	})
+
+	for p.e == nil && p.Char() != ')' {
+		propName := p.Ident()
+		value, ok := nameToValue[propName]
+		if !ok {
+			p.eatExcessive(true, "unknown call property: %s", propName)
+			if p.Char() == ',' {
+				p.Parse(',')
+			}
+			continue
+		}
+		switch kind := value.Kind(); kind {
+		case reflect.Int:
+			p.Parse(':')
+			strVal := p.Ident()
+			intV, err := strconv.ParseInt(strVal, 0, 64)
+			if err != nil {
+				p.strictFailf("invalid int value: %s", strVal)
+			} else {
+				value.SetInt(intV)
+			}
+		default:
+			panic("unable to handle call props of type " + kind.String())
+		}
+		if p.Char() != ')' {
+			p.Parse(',')
+		}
+	}
+	return callProps
 }
 
 func (p *parser) parseArg(typ Type, dir Dir) (Arg, error) {

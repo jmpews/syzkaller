@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -38,7 +39,7 @@ func Run(timeout time.Duration, cmd *exec.Cmd) ([]byte, error) {
 	if cmd.Stderr == nil {
 		cmd.Stderr = output
 	}
-	setPdeathsig(cmd)
+	setPdeathsig(cmd, true)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start %v %+v: %v", cmd.Path, cmd.Args, err)
 	}
@@ -78,10 +79,20 @@ func Run(timeout time.Duration, cmd *exec.Cmd) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-// Command is similar to os/exec.Command, but also sets PDEATHSIG on linux.
+// Command is similar to os/exec.Command, but also sets PDEATHSIG to SIGKILL on linux,
+// i.e. the child will be killed immediately.
 func Command(bin string, args ...string) *exec.Cmd {
 	cmd := exec.Command(bin, args...)
-	setPdeathsig(cmd)
+	setPdeathsig(cmd, true)
+	return cmd
+}
+
+// Command is similar to os/exec.Command, but also sets PDEATHSIG to SIGTERM on linux,
+// i.e. the child has a chance to exit gracefully. This may be important when running
+// e.g. syz-manager. If it is killed immediately, it can leak GCE instances.
+func GraciousCommand(bin string, args ...string) *exec.Cmd {
+	cmd := exec.Command(bin, args...)
+	setPdeathsig(cmd, false)
 	return cmd
 }
 
@@ -275,17 +286,19 @@ func ListDir(dir string) ([]string, error) {
 	return f.Readdirnames(-1)
 }
 
-var wd string
-
-func init() {
-	var err error
-	wd, err = os.Getwd()
-	if err != nil {
-		panic(fmt.Sprintf("failed to get wd: %v", err))
-	}
-}
+var (
+	wd     string
+	wdOnce sync.Once
+)
 
 func Abs(path string) string {
+	wdOnce.Do(func() {
+		var err error
+		wd, err = os.Getwd()
+		if err != nil {
+			panic(fmt.Sprintf("failed to get wd: %v", err))
+		}
+	})
 	if wd1, err := os.Getwd(); err == nil && wd1 != wd {
 		panic(fmt.Sprintf("wd changed: %q -> %q", wd, wd1))
 	}

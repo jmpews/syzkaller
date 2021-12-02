@@ -28,9 +28,9 @@ const (
 func createCommonHeader(p, mmapProg *prog.Prog, replacements map[string]string, opts Options) ([]byte, error) {
 	defines := defineList(p, mmapProg, opts)
 	sysTarget := targets.Get(p.Target.OS, p.Target.Arch)
-	// TODO(HerrSpace): -fdirectives-only isn't supported by clang. This code
-	// is relevant for producing C reproducers. Hence that doesn't work for
-	// darwin at the moment.
+	// Note: -fdirectives-only isn't supported by clang. This code is relevant
+	// for producing C++ reproducers. Hence reproducers don't work when setting
+	// CPP in targets.go to clang++ at the moment.
 	cmd := osutil.Command(sysTarget.CPP, "-nostdinc", "-undef", "-fdirectives-only", "-dDI", "-E", "-P", "-")
 	for _, def := range defines {
 		cmd.Args = append(cmd.Args, "-D"+def)
@@ -107,7 +107,7 @@ func commonDefines(p *prog.Prog, opts Options) map[string]bool {
 		"SYZ_REPEAT":                    opts.Repeat,
 		"SYZ_REPEAT_TIMES":              opts.RepeatTimes > 1,
 		"SYZ_MULTI_PROC":                opts.Procs > 1,
-		"SYZ_FAULT":                     opts.Fault,
+		"SYZ_FAULT":                     p.HasFaultInjection(),
 		"SYZ_LEAK":                      opts.Leak,
 		"SYZ_NET_INJECTION":             opts.NetInjection,
 		"SYZ_NET_DEVICES":               opts.NetDevices,

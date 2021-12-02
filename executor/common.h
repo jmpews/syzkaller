@@ -102,9 +102,8 @@ static void segv_handler(int sig, siginfo_t* info, void* ctx)
 	// address of the faulting instruction rather than zero as other
 	// operating systems seem to do.  However, such faults should always be
 	// ignored.
-	if (sig == SIGBUS) {
+	if (sig == SIGBUS)
 		valid = 1;
-	}
 #endif
 	if (skip && valid) {
 		debug("SIGSEGV on %p, skipping\n", (void*)addr);
@@ -271,10 +270,16 @@ static void __attribute__((noinline)) remove_dir(const char* dir)
 #endif
 
 #if !GOOS_linux && !GOOS_netbsd
-#if SYZ_EXECUTOR
+#if SYZ_EXECUTOR || SYZ_FAULT
 static int inject_fault(int nth)
 {
 	return 0;
+}
+#endif
+
+#if SYZ_FAULT
+static void setup_fault()
+{
 }
 #endif
 
@@ -656,7 +661,8 @@ static void loop(void)
 			if (waitpid(-1, &status, WNOHANG | WAIT_FLAGS) == pid)
 				break;
 			sleep_ms(1);
-#if SYZ_EXECUTOR && SYZ_EXECUTOR_USES_SHMEM
+#if SYZ_EXECUTOR
+#if SYZ_EXECUTOR_USES_SHMEM
 			// Even though the test process executes exit at the end
 			// and execution time of each syscall is bounded by syscall_timeout_ms (~50ms),
 			// this backup watchdog is necessary and its performance is important.
@@ -679,13 +685,13 @@ static void loop(void)
 			if ((now - start < program_timeout_ms) &&
 			    (now - start < min_timeout_ms || now - last_executed < inactive_timeout_ms))
 				continue;
-#elif SYZ_EXECUTOR
+#else
 			if (current_time_ms() - start < program_timeout_ms)
 				continue;
+#endif
 #else
-		if (current_time_ms() - start < /*{{{PROGRAM_TIMEOUT_MS}}}*/) {
-			continue;
-		}
+			if (current_time_ms() - start < /*{{{PROGRAM_TIMEOUT_MS}}}*/)
+				continue;
 #endif
 			debug("killing hanging pid %d\n", pid);
 			kill_and_wait(pid, &status);
@@ -756,6 +762,9 @@ int main(void)
 
 #if SYZ_SYSCTL
 	setup_sysctl();
+#endif
+#if SYZ_CGROUPS
+	setup_cgroups();
 #endif
 #if SYZ_BINFMT_MISC
 	setup_binfmt_misc();

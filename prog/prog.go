@@ -5,6 +5,7 @@ package prog
 
 import (
 	"fmt"
+	"reflect"
 )
 
 type Prog struct {
@@ -13,11 +14,28 @@ type Prog struct {
 	Comments []string
 }
 
+// These properties are parsed and serialized according to the tag and the type
+// of the corresponding fields.
+// IMPORTANT: keep the exact values of "key" tag for existing props unchanged,
+// otherwise the backwards compatibility would be broken.
+type CallProps struct {
+	FailNth int `key:"fail_nth"`
+}
+
 type Call struct {
 	Meta    *Syscall
 	Args    []Arg
 	Ret     *ResultArg
+	Props   CallProps
 	Comment string
+}
+
+func MakeCall(meta *Syscall, args []Arg) *Call {
+	return &Call{
+		Meta: meta,
+		Args: args,
+		Ret:  MakeReturnArg(meta.Ret),
+	}
 }
 
 type Arg interface {
@@ -386,7 +404,7 @@ func removeArg(arg0 Arg) {
 }
 
 // removeCall removes call idx from p.
-func (p *Prog) removeCall(idx int) {
+func (p *Prog) RemoveCall(idx int) {
 	c := p.Calls[idx]
 	for _, arg := range c.Args {
 		removeArg(arg)
@@ -411,4 +429,15 @@ func (p *Prog) sanitize(fix bool) error {
 		}
 	}
 	return nil
+}
+
+// TODO: This method might be more generic - it can be applied to any struct.
+func (props *CallProps) ForeachProp(f func(fieldName, key string, value reflect.Value)) {
+	valueObj := reflect.ValueOf(props).Elem()
+	typeObj := valueObj.Type()
+	for i := 0; i < valueObj.NumField(); i++ {
+		fieldValue := valueObj.Field(i)
+		fieldType := typeObj.Field(i)
+		f(fieldType.Name, fieldType.Tag.Get("key"), fieldValue)
+	}
 }

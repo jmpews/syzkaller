@@ -1,7 +1,9 @@
 # Research work based on syzkaller
 
 _newer first_
-* [Undo Workarounds for Kernel Bugs](https://www.usenix.org/system/files/sec21fall-talebi.pdf)
+* [SyzGen: Automated Generation of Syscall Specification of Closed-Source macOS Drivers](https://www.cs.ucr.edu/~zhiyunq/pub/ccs21_syzgen.pdf) ([source code](https://github.com/seclab-ucr/SyzGen_setup))
+* [Snowboard: Finding Kernel Concurrency Bugs through Systematic Inter-thread Communication Analysis](https://dl.acm.org/doi/10.1145/3477132.3483549)
+* [Undo Workarounds for Kernel Bugs](https://www.usenix.org/system/files/sec21fall-talebi.pdf) ([source code](https://trusslab.github.io/hecaton))
 * [HFL: Hybrid Fuzzing on the Linux Kernel](https://www.ndss-symposium.org/wp-content/uploads/2020/02/24018-paper.pdf)
 * [A Novel Dynamic Analysis Infrastructure to Instrument Untrusted Execution Flow Across User-Kernel Spaces](https://www.computer.org/csdl/proceedings-article/sp/2021/893400a402/1mbmHSlbmvK)
 * [Industry Practice of Coverage-Guided Enterprise Linux Kernel Fuzzing](http://wingtecher.com/themes/WingTecherResearch/assets/papers/fse19-linux-kernel.pdf)
@@ -11,7 +13,8 @@ _newer first_
 * [FastSyzkaller: Improving Fuzz Efficiency for Linux Kernel Fuzzing](https://iopscience.iop.org/article/10.1088/1742-6596/1176/2/022013)
 * [Charm: Facilitating Dynamic Analysis of Device Drivers of Mobile Systems](https://www.usenix.org/system/files/conference/usenixsecurity18/sec18-talebi.pdf)
 ([video](https://www.usenix.org/conference/usenixsecurity18/presentation/talebi),
-[slides](https://www.usenix.org/sites/default/files/conference/protected-files/security18_slides_talebi.pdf))
+[slides](https://www.usenix.org/sites/default/files/conference/protected-files/security18_slides_talebi.pdf),
+[source code](https://trusslab.github.io/charm))
 * [ALEXKIDD-FUZZER: Kernel Fuzzing Guided by Symbolic Information](https://www.cerias.purdue.edu/assets/symposium/2018-posters/829-D1B.pdf)
 * [DIFUZE: Interface Aware Fuzzing for Kernel Drivers](https://acmccs.github.io/papers/p2123-corinaA.pdf)
 * [MoonShine: Optimizing OS Fuzzer Seed Selection with Trace Distillation](http://www.cs.columbia.edu/~suman/docs/moonshine.pdf)
@@ -25,6 +28,7 @@ _newer first_
 
 # Other kernel fuzzing work
 
+* [CoLaFUZE: Coverage-Guided and Layout-Aware Fuzzing for Android Drivers](https://www.jstage.jst.go.jp/article/transinf/E104.D/11/E104.D_2021NGP0005/_pdf)
 * [Healer](https://github.com/SunHao-0/healer) is a kernel fuzzer inspired by syzkaller.
 * [KRACE: Data Race Fuzzing for Kernel File Systems](https://www.cc.gatech.edu/~mxu80/pubs/xu:krace.pdf)
 * [trinity](https://github.com/kernelslacker/trinity)

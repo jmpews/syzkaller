@@ -47,19 +47,31 @@ func Write(p *prog.Prog, opts Options) ([]byte, error) {
 		sysTarget: targets.Get(p.Target.OS, p.Target.Arch),
 		calls:     make(map[string]uint64),
 	}
+	return ctx.generateSource()
+}
 
-	calls, vars, err := ctx.generateProgCalls(ctx.p, opts.Trace)
+type context struct {
+	p         *prog.Prog
+	opts      Options
+	target    *prog.Target
+	sysTarget *targets.Target
+	calls     map[string]uint64 // CallName -> NR
+}
+
+func (ctx *context) generateSource() ([]byte, error) {
+	ctx.filterCalls()
+	calls, vars, err := ctx.generateProgCalls(ctx.p, ctx.opts.Trace)
 	if err != nil {
 		return nil, err
 	}
 
-	mmapProg := p.Target.DataMmapProg()
+	mmapProg := ctx.p.Target.DataMmapProg()
 	mmapCalls, _, err := ctx.generateProgCalls(mmapProg, false)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, c := range append(mmapProg.Calls, p.Calls...) {
+	for _, c := range append(mmapProg.Calls, ctx.p.Calls...) {
 		ctx.calls[c.Meta.CallName] = c.Meta.NR
 	}
 
@@ -76,34 +88,34 @@ func Write(p *prog.Prog, opts Options) ([]byte, error) {
 	}
 
 	sandboxFunc := "loop();"
-	if opts.Sandbox != "" {
-		sandboxFunc = "do_sandbox_" + opts.Sandbox + "();"
+	if ctx.opts.Sandbox != "" {
+		sandboxFunc = "do_sandbox_" + ctx.opts.Sandbox + "();"
 	}
 	replacements := map[string]string{
-		"PROCS":           fmt.Sprint(opts.Procs),
-		"REPEAT_TIMES":    fmt.Sprint(opts.RepeatTimes),
-		"NUM_CALLS":       fmt.Sprint(len(p.Calls)),
+		"PROCS":           fmt.Sprint(ctx.opts.Procs),
+		"REPEAT_TIMES":    fmt.Sprint(ctx.opts.RepeatTimes),
+		"NUM_CALLS":       fmt.Sprint(len(ctx.p.Calls)),
 		"MMAP_DATA":       strings.Join(mmapCalls, ""),
 		"SYSCALL_DEFINES": ctx.generateSyscallDefines(),
 		"SANDBOX_FUNC":    sandboxFunc,
 		"RESULTS":         varsBuf.String(),
 		"SYSCALLS":        ctx.generateSyscalls(calls, len(vars) != 0),
 	}
-	if !opts.Threaded && !opts.Repeat && opts.Sandbox == "" {
+	if !ctx.opts.Threaded && !ctx.opts.Repeat && ctx.opts.Sandbox == "" {
 		// This inlines syscalls right into main for the simplest case.
 		replacements["SANDBOX_FUNC"] = replacements["SYSCALLS"]
 		replacements["SYSCALLS"] = "unused"
 	}
-	timeouts := ctx.sysTarget.Timeouts(opts.Slowdown)
+	timeouts := ctx.sysTarget.Timeouts(ctx.opts.Slowdown)
 	replacements["PROGRAM_TIMEOUT_MS"] = fmt.Sprint(int(timeouts.Program / time.Millisecond))
 	timeoutExpr := fmt.Sprint(int(timeouts.Syscall / time.Millisecond))
-	for i, call := range p.Calls {
+	for i, call := range ctx.p.Calls {
 		if timeout := call.Meta.Attrs.Timeout; timeout != 0 {
 			timeoutExpr += fmt.Sprintf(" + (call == %v ? %v : 0)", i, timeout*uint64(timeouts.Scale))
 		}
 	}
 	replacements["CALL_TIMEOUT_MS"] = timeoutExpr
-	result, err := createCommonHeader(p, mmapProg, replacements, opts)
+	result, err := createCommonHeader(ctx.p, mmapProg, replacements, ctx.opts)
 	if err != nil {
 		return nil, err
 	}
@@ -113,19 +125,37 @@ func Write(p *prog.Prog, opts Options) ([]byte, error) {
 	return result, nil
 }
 
-type context struct {
-	p         *prog.Prog
-	opts      Options
-	target    *prog.Target
-	sysTarget *targets.Target
-	calls     map[string]uint64 // CallName -> NR
+// This is a kludge, but we keep it here until a better approach is implemented.
+// TODO: untie syz_emit_ethernet/syz_extract_tcp_res and NetInjection. And also
+// untie VhciInjection and syz_emit_vhci. Then we could remove this method.
+func (ctx *context) filterCalls() {
+	p := ctx.p
+	for i := 0; i < len(p.Calls); {
+		call := p.Calls[i]
+		callName := call.Meta.CallName
+		emitCall := (ctx.opts.NetInjection ||
+			callName != "syz_emit_ethernet" &&
+				callName != "syz_extract_tcp_res") &&
+			(ctx.opts.VhciInjection || callName != "syz_emit_vhci")
+		if emitCall {
+			i++
+			continue
+		}
+		// Remove the call.
+		if ctx.p == p {
+			// We lazily clone the program to avoid unnecessary copying.
+			p = ctx.p.Clone()
+		}
+		p.RemoveCall(i)
+	}
+	ctx.p = p
 }
 
 func (ctx *context) generateSyscalls(calls []string, hasVars bool) string {
 	opts := ctx.opts
 	buf := new(bytes.Buffer)
 	if !opts.Threaded && !opts.Collide {
-		if hasVars || opts.Trace {
+		if len(calls) > 0 && (hasVars || opts.Trace) {
 			fmt.Fprintf(buf, "\tintptr_t res = 0;\n")
 		}
 		if opts.Repro {
@@ -137,7 +167,7 @@ func (ctx *context) generateSyscalls(calls []string, hasVars bool) string {
 		for _, c := range calls {
 			fmt.Fprintf(buf, "%s", c)
 		}
-	} else {
+	} else if len(calls) > 0 {
 		if hasVars || opts.Trace {
 			fmt.Fprintf(buf, "\tintptr_t res = 0;\n")
 		}
@@ -203,24 +233,14 @@ func (ctx *context) generateCalls(p prog.ExecProg, trace bool) ([]string, []uint
 			ctx.copyin(w, &csumSeq, copyin)
 		}
 
-		if ctx.opts.Fault && ctx.opts.FaultCall == ci {
-			fmt.Fprintf(w, "\tinject_fault(%v);\n", ctx.opts.FaultNth)
+		if call.Props.FailNth > 0 {
+			fmt.Fprintf(w, "\tinject_fault(%v);\n", call.Props.FailNth)
 		}
 		// Call itself.
-		callName := call.Meta.CallName
 		resCopyout := call.Index != prog.ExecNoCopyout
 		argCopyout := len(call.Copyout) != 0
-		emitCall := (ctx.opts.NetInjection ||
-			callName != "syz_emit_ethernet" &&
-				callName != "syz_extract_tcp_res") &&
-			(ctx.opts.VhciInjection || callName != "syz_emit_vhci")
-		// TODO: if we don't emit the call we must also not emit copyin, copyout and fault injection.
-		// However, simply skipping whole iteration breaks tests due to unused static functions.
-		if emitCall {
-			ctx.emitCall(w, call, ci, resCopyout || argCopyout, trace)
-		} else if trace {
-			fmt.Fprintf(w, "\t(void)res;\n")
-		}
+
+		ctx.emitCall(w, call, ci, resCopyout || argCopyout, trace)
 
 		// Copyout.
 		if resCopyout || argCopyout {

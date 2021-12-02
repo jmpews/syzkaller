@@ -22,6 +22,7 @@ package prog
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 )
 
@@ -29,6 +30,7 @@ const (
 	execInstrEOF = ^uint64(iota)
 	execInstrCopyin
 	execInstrCopyout
+	execInstrSetProps
 )
 
 const (
@@ -87,6 +89,10 @@ func (w *execContext) serializeCall(c *Call) {
 	// Generate checksum calculation instructions starting from the last one,
 	// since checksum values can depend on values of the latter ones
 	w.writeChecksums()
+	if !reflect.DeepEqual(c.Props, CallProps{}) {
+		// Push call properties.
+		w.writeCallProps(c.Props)
+	}
 	// Generate the call itself.
 	w.write(uint64(c.Meta.ID))
 	if c.Ret != nil && len(c.Ret.uses) != 0 {
@@ -103,6 +109,7 @@ func (w *execContext) serializeCall(c *Call) {
 	for _, arg := range c.Args {
 		w.writeArg(arg)
 	}
+
 	// Generate copyout instructions that persist interesting return values.
 	w.writeCopyout(c)
 }
@@ -122,6 +129,18 @@ type argInfo struct {
 	Addr uint64 // physical addr
 	Idx  uint64 // copyout instruction index
 	Ret  bool
+}
+
+func (w *execContext) writeCallProps(props CallProps) {
+	w.write(execInstrSetProps)
+	props.ForeachProp(func(_, _ string, value reflect.Value) {
+		switch kind := value.Kind(); kind {
+		case reflect.Int:
+			w.write(uint64(value.Int()))
+		default:
+			panic("Unsupported (yet) kind: " + kind.String())
+		}
+	})
 }
 
 func (w *execContext) writeCopyin(c *Call) {

@@ -91,6 +91,8 @@ static void cover_open(cover_t* cov, bool extra)
 	if (cov->data == MAP_FAILED)
 		fail("cover mmap failed");
 	cov->data_end = cov->data + mmap_alloc_size;
+	cov->data_offset = is_kernel_64_bit ? sizeof(uint64_t) : sizeof(uint32_t);
+	cov->pc_offset = 0;
 }
 
 static void cover_protect(cover_t* cov)
@@ -221,6 +223,5 @@ static feature_t features[] = {
     {"binfmt_misc", setup_binfmt_misc},
     {"kcsan", setup_kcsan},
     {"usb", setup_usb},
-    {"sysctl", setup_sysctl},
     {"802154", setup_802154},
 };

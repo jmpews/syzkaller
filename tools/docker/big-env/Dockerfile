@@ -31,10 +31,12 @@ FROM gcr.io/syzkaller/env
 #	create-image.sh -a s390x -d buster
 
 RUN dpkg --add-architecture i386 && \
-	apt-get update && \
-	DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+	apt-get update --allow-releaseinfo-change && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
 	# required to build root images.
 	debootstrap ssh-tools qemu-user-static \
+	# required for gcloud sdk.
+	python2 \
 	&& \
 	apt-get -y autoremove && \
 	apt-get clean autoclean && \
@@ -48,10 +50,32 @@ ENV SOURCEDIR_NETBSD /syzkaller/netbsd
 ENV SOURCEDIR_AKAROS /syzkaller/akaros
 
 # Install gcloud sdk for dashboard/app tests.
-RUN curl https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-294.0.0-linux-x86_64.tar.gz | tar -C /usr/local -xz
+RUN curl https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-360.0.0-linux-x86_64.tar.gz | tar -C /usr/local -xz
 ENV PATH /usr/local/google-cloud-sdk/bin:$PATH
-RUN gcloud components install --quiet app-engine-python app-engine-go cloud-datastore-emulator
+RUN gcloud components install --quiet app-engine-python app-engine-go app-engine-python-extras cloud-datastore-emulator
 RUN chmod 0777 /usr/local/google-cloud-sdk
+
+# Install Go 1.12 for local testing of the appengine app build.
+# Appengine should be using Go 1.11, but the build fails with 1.11,
+# so we use 1.12 as the best working approximation.
+RUN go get golang.org/dl/go1.12@latest
+# The following command downloads Go into HOME,
+# so we need to use HOME value we will be using later.
+RUN HOME=/syzkaller go1.12 download
+
+# Debian Buster provides only clang-7 which is quite old,
+# in particular it does not detect some warnings that later fire on OpenBSD.
+# Install clang-14 from https://apt.llvm.org.
+RUN apt-get install -y -q gnupg software-properties-common apt-transport-https
+# Without this I am getting error:
+# aptsources.distro.NoDistroTemplateException: Error: could not find a distribution template for Debian
+RUN apt-get install -y -q --reinstall base-files
+RUN curl https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
+RUN add-apt-repository "deb http://apt.llvm.org/bullseye/ llvm-toolchain-bullseye main"
+RUN apt-get update --allow-releaseinfo-change
+RUN apt-get remove -y -q clang-11
+RUN apt-get install -y -q --no-install-recommends clang-14
+RUN apt autoremove -y -q
 
 RUN echo "export PS1='syz-big-env🈶 '" > /syzkaller/.bashrc
 ENV SYZ_BIG_ENV yes

@@ -3,12 +3,12 @@
 
 kernel:
  repo: https://github.com/google/kmsan.git
- tag: kmsan-v5.12-rc6
+ tag: kmsan-v5.15-rc2
 
 config:
  - KMSAN
  # Crash the kernel after the first KMSAN report.
- - CMDLINE: [append, "panic_on_kmsan=1"]
+ - CMDLINE: [append, "kmsan.panic=1"]
 
  # Avoid reboot loop in instrumented kernel:
  - PREEMPT_NONE

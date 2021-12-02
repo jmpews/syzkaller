@@ -48,8 +48,10 @@ func InitTarget(target *prog.Target) {
 		TIOCSSERIAL:                 target.GetConst("TIOCSSERIAL"),
 		TIOCGSERIAL:                 target.GetConst("TIOCGSERIAL"),
 		// These are not present on all arches.
-		ARCH_SET_FS: target.ConstMap["ARCH_SET_FS"],
-		ARCH_SET_GS: target.ConstMap["ARCH_SET_GS"],
+		ARCH_SET_FS:        target.ConstMap["ARCH_SET_FS"],
+		ARCH_SET_GS:        target.ConstMap["ARCH_SET_GS"],
+		X86_IOC_RDMSR_REGS: target.ConstMap["X86_IOC_RDMSR_REGS"],
+		X86_IOC_WRMSR_REGS: target.ConstMap["X86_IOC_WRMSR_REGS"],
 	}
 
 	target.MakeDataMmap = targets.MakePosixMmap(target, true, true)
@@ -158,6 +160,8 @@ type arch struct {
 	USB_MAJOR                   uint64
 	TIOCSSERIAL                 uint64
 	TIOCGSERIAL                 uint64
+	X86_IOC_RDMSR_REGS          uint64
+	X86_IOC_WRMSR_REGS          uint64
 }
 
 func (arch *arch) neutralize(c *prog.Call) {
@@ -284,6 +288,12 @@ func (arch *arch) neutralizeIoctl(c *prog.Call) {
 		// and would be nice to test, if/when we can neutralize based on sandbox value
 		// we could prohibit it only under sandbox=none.
 		cmd.Val = arch.TIOCGSERIAL
+	case arch.X86_IOC_WRMSR_REGS:
+		// Enabling X86_IOC_WRMSR_REGS would cause havoc as it can write to any MSR registers
+		// and there are a lot of things that could go wrong.
+		// TODO: Ideally, it would be great if we can have a restricted set of inputs for this
+		// such that we can write values only from that set.
+		cmd.Val = arch.X86_IOC_RDMSR_REGS
 	}
 }
 
@@ -340,14 +350,10 @@ func (arch *arch) generateTimespec(g *prog.Gen, typ0 prog.Type, dir prog.Dir, ol
 		})
 		var tpaddr prog.Arg
 		tpaddr, calls = g.Alloc(ptrArgType, prog.DirIn, tp)
-		gettime := &prog.Call{
-			Meta: meta,
-			Args: []prog.Arg{
-				prog.MakeConstArg(meta.Args[0].Type, prog.DirIn, arch.CLOCK_REALTIME),
-				tpaddr,
-			},
-			Ret: prog.MakeReturnArg(meta.Ret),
-		}
+		gettime := prog.MakeCall(meta, []prog.Arg{
+			prog.MakeConstArg(meta.Args[0].Type, prog.DirIn, arch.CLOCK_REALTIME),
+			tpaddr,
+		})
 		calls = append(calls, gettime)
 		sec := prog.MakeResultArg(typ.Fields[0].Type, dir, tp.Inner[0].(*prog.ResultArg), 0)
 		nsec := prog.MakeResultArg(typ.Fields[1].Type, dir, tp.Inner[1].(*prog.ResultArg), 0)

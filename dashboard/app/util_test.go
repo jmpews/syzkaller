@@ -154,21 +154,28 @@ func (c *Ctx) Close() {
 		// To avoid per-day reporting limits for left-over emails.
 		c.advanceTime(25 * time.Hour)
 		// Ensure that we can render main page and all bugs in the final test state.
-		c.expectOK(c.GET("/test1"))
-		c.expectOK(c.GET("/test2"))
-		c.expectOK(c.GET("/test1/fixed"))
-		c.expectOK(c.GET("/test2/fixed"))
-		c.expectOK(c.GET("/admin"))
+		_, err := c.GET("/test1")
+		c.expectOK(err)
+		_, err = c.GET("/test2")
+		c.expectOK(err)
+		_, err = c.GET("/test1/fixed")
+		c.expectOK(err)
+		_, err = c.GET("/test2/fixed")
+		c.expectOK(err)
+		_, err = c.GET("/admin")
+		c.expectOK(err)
 		var bugs []*Bug
 		keys, err := db.NewQuery("Bug").GetAll(c.ctx, &bugs)
 		if err != nil {
 			c.t.Errorf("ERROR: failed to query bugs: %v", err)
 		}
 		for _, key := range keys {
-			c.expectOK(c.GET(fmt.Sprintf("/bug?id=%v", key.StringID())))
+			_, err = c.GET(fmt.Sprintf("/bug?id=%v", key.StringID()))
+			c.expectOK(err)
 		}
 		// No pending emails (tests need to consume them).
-		c.expectOK(c.GET("/email_poll"))
+		_, err = c.GET("/email_poll")
+		c.expectOK(err)
 		for len(c.emailSink) != 0 {
 			c.t.Errorf("ERROR: leftover email: %v", (<-c.emailSink).Body)
 		}
@@ -187,23 +194,35 @@ func (c *Ctx) advanceTime(d time.Duration) {
 }
 
 // GET sends admin-authorized HTTP GET request to the app.
-func (c *Ctx) GET(url string) error {
-	_, err := c.httpRequest("GET", url, "", AccessAdmin)
-	return err
+func (c *Ctx) GET(url string) ([]byte, error) {
+	return c.AuthGET(AccessAdmin, url)
 }
 
 // AuthGET sends HTTP GET request to the app with the specified authorization.
 func (c *Ctx) AuthGET(access AccessLevel, url string) ([]byte, error) {
-	return c.httpRequest("GET", url, "", access)
+	w, err := c.httpRequest("GET", url, "", access)
+	if err != nil {
+		return nil, err
+	}
+	return w.Body.Bytes(), nil
 }
 
-// POST sends admin-authorized HTTP POST request to the app.
-func (c *Ctx) POST(url, body string) error {
-	_, err := c.httpRequest("POST", url, body, AccessAdmin)
-	return err
+// POST sends admin-authorized HTTP POST requestd to the app.
+func (c *Ctx) POST(url, body string) ([]byte, error) {
+	w, err := c.httpRequest("POST", url, body, AccessAdmin)
+	if err != nil {
+		return nil, err
+	}
+	return w.Body.Bytes(), nil
 }
 
-func (c *Ctx) httpRequest(method, url, body string, access AccessLevel) ([]byte, error) {
+// ContentType returns the response Content-Type header value.
+func (c *Ctx) ContentType(url string) (string, error) {
+	w, err := c.httpRequest("HEAD", url, "", AccessAdmin)
+	return (w.Header()["Content-Type"][0]), err
+}
+
+func (c *Ctx) httpRequest(method, url, body string, access AccessLevel) (*httptest.ResponseRecorder, error) {
 	c.t.Logf("%v: %v", method, url)
 	r, err := c.inst.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
@@ -226,7 +245,7 @@ func (c *Ctx) httpRequest(method, url, body string, access AccessLevel) ([]byte,
 	if w.Code != http.StatusOK {
 		return nil, HTTPError{w.Code, w.Body.String(), w.Result().Header}
 	}
-	return w.Body.Bytes(), nil
+	return w, nil
 }
 
 type HTTPError struct {
@@ -306,7 +325,8 @@ func (c *Ctx) checkURLContents(url string, want []byte) {
 }
 
 func (c *Ctx) pollEmailBug() *aemail.Message {
-	c.expectOK(c.GET("/email_poll"))
+	_, err := c.GET("/email_poll")
+	c.expectOK(err)
 	if len(c.emailSink) == 0 {
 		c.t.Helper()
 		c.t.Fatal("got no emails")
@@ -315,7 +335,8 @@ func (c *Ctx) pollEmailBug() *aemail.Message {
 }
 
 func (c *Ctx) expectNoEmail() {
-	c.expectOK(c.GET("/email_poll"))
+	_, err := c.GET("/email_poll")
+	c.expectOK(err)
 	if len(c.emailSink) != 0 {
 		msg := <-c.emailSink
 		c.t.Helper()
@@ -467,7 +488,8 @@ Content-Type: text/plain
 
 %v
 `, from, id, subject, from, strings.Join(cc, ","), to, body)
-	c.expectOK(c.POST("/_ah/mail/", email))
+	_, err := c.POST("/_ah/mail/", email)
+	c.expectOK(err)
 }
 
 func initMocks() {

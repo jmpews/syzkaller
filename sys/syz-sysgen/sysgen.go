@@ -51,9 +51,15 @@ type OSData struct {
 	Archs []ArchData
 }
 
+type CallPropDescription struct {
+	Type string
+	Name string
+}
+
 type ExecutorData struct {
 	OSes      []OSData
 	CallAttrs []string
+	CallProps []CallPropDescription
 }
 
 var srcDir = flag.String("src", "", "path to root of syzkaller source dir")
@@ -86,17 +92,11 @@ func main() {
 		}
 		sort.Strings(archs)
 
-		type Job struct {
-			Target      *targets.Target
-			OK          bool
-			Errors      []string
-			Unsupported map[string]bool
-			ArchData    ArchData
-		}
 		var jobs []*Job
 		for _, arch := range archs {
 			jobs = append(jobs, &Job{
-				Target: targets.List[OS][arch],
+				Target:      targets.List[OS][arch],
+				Unsupported: make(map[string]bool),
 			})
 		}
 		sort.Slice(jobs, func(i, j int) bool {
@@ -109,43 +109,7 @@ func main() {
 			job := job
 			go func() {
 				defer wg.Done()
-				eh := func(pos ast.Pos, msg string) {
-					job.Errors = append(job.Errors, fmt.Sprintf("%v: %v\n", pos, msg))
-				}
-				consts := constFile.Arch(job.Target.Arch)
-				top := descriptions
-				if OS == targets.Linux && (job.Target.Arch == targets.ARM || job.Target.Arch == targets.RiscV64) {
-					// Hack: KVM is not supported on ARM anymore. On riscv64 it
-					// is not supported yet but might be in the future.
-					// Note: syz-extract also ignores this file for arm and
-					// riscv64.
-					top = descriptions.Filter(func(n ast.Node) bool {
-						pos, _, _ := n.Info()
-						return !strings.HasSuffix(pos.File, "_kvm.txt")
-					})
-				}
-				if OS == targets.TestOS {
-					constInfo := compiler.ExtractConsts(top, job.Target, eh)
-					compiler.FabricateSyscallConsts(job.Target, constInfo, consts)
-				}
-				prog := compiler.Compile(top, consts, job.Target, eh)
-				if prog == nil {
-					return
-				}
-				job.Unsupported = prog.Unsupported
-
-				sysFile := filepath.Join(*outDir, "sys", OS, "gen", job.Target.Arch+".go")
-				out := new(bytes.Buffer)
-				generate(job.Target, prog, consts, out)
-				rev := hash.String(out.Bytes())
-				fmt.Fprintf(out, "const revision_%v = %q\n", job.Target.Arch, rev)
-				writeSource(sysFile, out.Bytes())
-
-				job.ArchData = generateExecutorSyscalls(job.Target, prog.Syscalls, rev)
-
-				// Don't print warnings, they are printed in syz-check.
-				job.Errors = nil
-				job.OK = true
+				processJob(job, descriptions, constFile)
 			}()
 		}
 		wg.Wait()
@@ -182,7 +146,75 @@ func main() {
 		data.CallAttrs = append(data.CallAttrs, prog.CppName(attrs.Field(i).Name))
 	}
 
+	props := prog.CallProps{}
+	props.ForeachProp(func(name, _ string, value reflect.Value) {
+		data.CallProps = append(data.CallProps, CallPropDescription{
+			Type: value.Kind().String(),
+			Name: prog.CppName(name),
+		})
+	})
+
 	writeExecutorSyscalls(data)
+}
+
+type Job struct {
+	Target      *targets.Target
+	OK          bool
+	Errors      []string
+	Unsupported map[string]bool
+	ArchData    ArchData
+}
+
+func processJob(job *Job, descriptions *ast.Description, constFile *compiler.ConstFile) {
+	eh := func(pos ast.Pos, msg string) {
+		job.Errors = append(job.Errors, fmt.Sprintf("%v: %v\n", pos, msg))
+	}
+	consts := constFile.Arch(job.Target.Arch)
+	top := descriptions
+	if job.Target.OS == targets.Linux && (job.Target.Arch == targets.ARM || job.Target.Arch == targets.RiscV64) {
+		// Hack: KVM is not supported on ARM anymore. On riscv64 it
+		// is not supported yet but might be in the future.
+		// Note: syz-extract also ignores this file for arm and riscv64.
+		top = descriptions.Filter(func(n ast.Node) bool {
+			pos, typ, name := n.Info()
+			if !strings.HasSuffix(pos.File, "_kvm.txt") {
+				return true
+			}
+			switch n.(type) {
+			case *ast.Resource, *ast.Struct, *ast.Call, *ast.TypeDef:
+				// Mimic what pkg/compiler would do with unsupported entries.
+				// This is required to keep the unsupported diagnostic below working
+				// for kvm entries, otherwise it will not think that kvm entries
+				// are not supported on all architectures.
+				job.Unsupported[typ+" "+name] = true
+			}
+			return false
+		})
+	}
+	if job.Target.OS == targets.TestOS {
+		constInfo := compiler.ExtractConsts(top, job.Target, eh)
+		compiler.FabricateSyscallConsts(job.Target, constInfo, consts)
+	}
+	prog := compiler.Compile(top, consts, job.Target, eh)
+	if prog == nil {
+		return
+	}
+	for what := range prog.Unsupported {
+		job.Unsupported[what] = true
+	}
+
+	sysFile := filepath.Join(*outDir, "sys", job.Target.OS, "gen", job.Target.Arch+".go")
+	out := new(bytes.Buffer)
+	generate(job.Target, prog, consts, out)
+	rev := hash.String(out.Bytes())
+	fmt.Fprintf(out, "const revision_%v = %q\n", job.Target.Arch, rev)
+	writeSource(sysFile, out.Bytes())
+
+	job.ArchData = generateExecutorSyscalls(job.Target, prog.Syscalls, rev)
+
+	// Don't print warnings, they are printed in syz-check.
+	job.Errors = nil
+	job.OK = true
 }
 
 func generate(target *targets.Target, prg *compiler.Prog, consts map[string]uint64, out io.Writer) {
@@ -327,6 +359,15 @@ var defsTempl = template.Must(template.New("").Parse(`// AUTOGENERATED FILE
 struct call_attrs_t { {{range $attr := $.CallAttrs}}
 	uint64_t {{$attr}};{{end}}
 };
+
+struct call_props_t { {{range $attr := $.CallProps}}
+	{{$attr.Type}} {{$attr.Name}};{{end}}
+};
+
+#define read_call_props_t(var, reader) { \{{range $attr := $.CallProps}}
+	(var).{{$attr.Name}} = ({{$attr.Type}})(reader); \{{end}}
+}
+
 {{range $os := $.OSes}}
 #if GOOS_{{$os.GOOS}}
 #define GOOS "{{$os.GOOS}}"

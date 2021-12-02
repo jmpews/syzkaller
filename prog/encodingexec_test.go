@@ -462,6 +462,32 @@ func TestSerializeForExec(t *testing.T) {
 			},
 			nil,
 		},
+		{
+			`test() (fail_nth: 3)
+test() (fail_nth: 4)
+`,
+			[]uint64{
+				execInstrSetProps, 3,
+				callID("test"), ExecNoCopyout, 0,
+				execInstrSetProps, 4,
+				callID("test"), ExecNoCopyout, 0,
+				execInstrEOF,
+			},
+			&ExecProg{
+				Calls: []ExecCall{
+					{
+						Meta:  target.SyscallMap["test"],
+						Index: ExecNoCopyout,
+						Props: CallProps{3},
+					},
+					{
+						Meta:  target.SyscallMap["test"],
+						Index: ExecNoCopyout,
+						Props: CallProps{4},
+					},
+				},
+			},
+		},
 	}
 
 	buf := make([]byte, ExecBufferSize)

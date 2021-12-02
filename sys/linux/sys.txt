@@ -141,7 +141,8 @@ epoll_ctl$EPOLL_CTL_ADD(epfd fd_epoll, op const[EPOLL_CTL_ADD], fd fd, ev ptr[in
 epoll_ctl$EPOLL_CTL_MOD(epfd fd_epoll, op const[EPOLL_CTL_MOD], fd fd, ev ptr[in, epoll_event])
 epoll_ctl$EPOLL_CTL_DEL(epfd fd_epoll, op const[EPOLL_CTL_DEL], fd fd)
 epoll_wait(epfd fd_epoll, events ptr[out, array[epoll_event]], maxevents len[events], timeout int32)
-epoll_pwait(epfd fd_epoll, events ptr[out, array[epoll_event]], maxevents len[events], timeout int32, sigmask ptr[in, sigset_t], size len[sigmask])
+epoll_pwait(epfd fd_epoll, events ptr[out, array[epoll_event]], maxevents len[events], timeout int32, sigmask ptr[in, sigset_t], size bytesize[sigmask])
+epoll_pwait2(epfd fd_epoll, events ptr[out, array[epoll_event]], maxevents len[events], timeout ptr[in, timespec], sigmask ptr[in, sigset_t], size bytesize[sigmask])
 
 resource fd_timer[fd]
 signalfd(fd fd, mask ptr[in, sigset_t], size len[mask]) fd
@@ -164,6 +165,7 @@ mprotect(addr vma, len len[addr], prot flags[mmap_prot])
 msync(addr vma, len len[addr], f flags[msync_flags])
 madvise(addr vma, len len[addr], advice flags[madvise_flags])
 process_madvise(pidfd fd_pidfd, vec ptr[in, array[iovec_in]], vlen len[vec], advice flags[madvise_flags], flags const[0])
+process_mrelease(pidfd fd_pidfd, flags const[0])
 fadvise64(fd fd, offset fileoff, len intptr, advice flags[fadvise_flags])
 readahead(fd fd, off intptr, count intptr)
 mbind(addr vma, len len[addr], mode flags[mbind_mode], nodemask ptr[in, int64], maxnode intptr, flags flags[mbind_flags])
@@ -184,6 +186,9 @@ resource fd_memfd[fd]
 memfd_create(name ptr[in, string], flags flags[memfd_flags]) fd_memfd
 memfd_flags = MFD_CLOEXEC, MFD_ALLOW_SEALING, MFD_HUGETLB
 _ = MFD_HUGE_SHIFT, MFD_HUGE_MASK, MFD_HUGE_64KB, MFD_HUGE_512KB, MFD_HUGE_1MB, MFD_HUGE_2MB, MFD_HUGE_8MB, MFD_HUGE_16MB
+
+memfd_secret(flags flags[memfd_secret_flags]) fd
+memfd_secret_flags = O_CLOEXEC
 
 resource pkey[int32]: -1
 pkey_alloc(flags const[0], val flags[pkey_flags]) pkey
@@ -517,7 +522,7 @@ syz_open_procfs(pid pid, file ptr[in, string[procfs_proc_file]]) fd
 # TODO: some of net files are only available in the init namespace (e.g. bluetooth bnep and hci).
 # We could find some way to open these files in the init namespace
 # esp. taking into account that we create bluetooth sockets in init namespace.
-procfs_proc_file = "auxv", "cmdline", "environ", "autogroup", "cgroup", "clear_refs", "comm", "coredump_filter", "cpuset", "gid_map", "io", "limits", "loginuid", "maps", "mountinfo", "mounts", "mountstats", "numa_maps", "oom_adj", "oom_score", "oom_score_adj", "pagemap", "personality", "projid_map", "sched", "schedstat", "sessionid", "setgroups", "smaps", "smaps_rollup", "totmaps", "stack", "stat", "statm", "status", "syscall", "timers", "uid_map", "wchan", "map_files", "attr", "attr/current", "attr/exec", "attr/fscreate", "attr/keycreate", "attr/prev", "attr/sockcreate", "ns", "children", "task", "fd", "fd/3", "fd/4", "fdinfo", "fdinfo/3", "fdinfo/4", "net", "net/anycast6", "net/arp", "net/bnep", "net/connector", "net/dev", "net/dev_mcast", "net/dev_snmp6", "net/fib_trie", "net/fib_triestat", "net/hci", "net/icmp", "net/icmp6", "net/if_inet6", "net/igmp", "net/igmp6", "net/ip6_flowlabel", "net/ip6_mr_cache", "net/ip6_mr_vif", "net/ip6_tables_matches", "net/ip6_tables_names", "net/ip6_tables_targets", "net/ip_mr_cache", "net/ip_mr_vif", "net/ip_tables_matches", "net/ip_tables_names", "net/ip_tables_targets", "net/ipv6_route", "net/ipx", "net/l2cap", "net/llc/core", "net/llc/socket", "net/mcfilter", "net/mcfilter6", "net/netfilter", "net/netlink", "net/netstat", "net/nfsfs", "net/packet", "net/protocols", "net/psched", "net/ptype", "net/raw", "net/raw6", "net/rfcomm", "net/route", "net/rpc", "net/rt6_stats", "net/rt_acct", "net/rt_cache", "net/sco", "net/sctp", "net/snmp", "net/snmp6", "net/sockstat", "net/sockstat6", "net/softnet_stat", "net/stat", "net/tcp", "net/tcp6", "net/udp", "net/udp6", "net/udplite", "net/udplite6", "net/unix", "net/wireless", "net/xfrm_stat", "net/ip_vs", "net/ip_vs_stats", "net/ip_vs_stats_percpu", "net/nf_conntrack", "net/nf_conntrack_expect", "net/vlan/config", "net/vlan/vlan0", "net/vlan/vlan1", "net/kcm", "net/psched", "timerslack_ns"
+procfs_proc_file = "auxv", "cmdline", "environ", "autogroup", "cgroup", "clear_refs", "comm", "coredump_filter", "cpuset", "gid_map", "io", "limits", "loginuid", "maps", "mountinfo", "mounts", "mountstats", "numa_maps", "oom_adj", "oom_score", "oom_score_adj", "pagemap", "personality", "projid_map", "sched", "schedstat", "sessionid", "setgroups", "smaps", "smaps_rollup", "totmaps", "stack", "stat", "statm", "status", "syscall", "timers", "uid_map", "wchan", "map_files", "attr", "attr/current", "attr/exec", "attr/fscreate", "attr/keycreate", "attr/prev", "attr/sockcreate", "ns", "children", "task", "fd", "fd/3", "fd/4", "fdinfo", "fdinfo/3", "fdinfo/4", "net", "net/anycast6", "net/arp", "net/bnep", "net/connector", "net/dev", "net/dev_mcast", "net/dev_snmp6", "net/fib_trie", "net/fib_triestat", "net/hci", "net/icmp", "net/icmp6", "net/if_inet6", "net/igmp", "net/igmp6", "net/ip6_flowlabel", "net/ip6_mr_cache", "net/ip6_mr_vif", "net/ip6_tables_matches", "net/ip6_tables_names", "net/ip6_tables_targets", "net/ip_mr_cache", "net/ip_mr_vif", "net/ip_tables_matches", "net/ip_tables_names", "net/ip_tables_targets", "net/ipv6_route", "net/l2cap", "net/llc/core", "net/llc/socket", "net/mcfilter", "net/mcfilter6", "net/netfilter", "net/netlink", "net/netstat", "net/nfsfs", "net/packet", "net/protocols", "net/psched", "net/ptype", "net/raw", "net/raw6", "net/rfcomm", "net/route", "net/rpc", "net/rt6_stats", "net/rt_acct", "net/rt_cache", "net/sco", "net/sctp", "net/snmp", "net/snmp6", "net/sockstat", "net/sockstat6", "net/softnet_stat", "net/stat", "net/tcp", "net/tcp6", "net/udp", "net/udp6", "net/udplite", "net/udplite6", "net/unix", "net/wireless", "net/xfrm_stat", "net/ip_vs", "net/ip_vs_stats", "net/ip_vs_stats_percpu", "net/nf_conntrack", "net/nf_conntrack_expect", "net/vlan/config", "net/vlan/vlan0", "net/vlan/vlan1", "net/kcm", "net/psched", "timerslack_ns"
 
 openat$procfs(fd const[AT_FDCWD], file ptr[in, string[procfs_file]], flags const[O_RDONLY], mode const[0]) fd
 
@@ -591,6 +596,8 @@ close_range(fd fd, max_fd fd, flags flags[close_range_flags])
 # Disable it for now.
 #syz_open_dev$console(dev ptr[in, string["/dev/console"]], id const[0], flags flags[open_flags]) fd
 
+resource fd_autofs[fd]
+
 # These devices are relatively safe (don't reboot and don't corrupt kernel memory).
 # They need a more comprehensive support. But let at least open them for now,
 # maybe fuzzer will be able to skrew them in a useful way.
@@ -611,7 +618,7 @@ openat$full(fd const[AT_FDCWD], file ptr[in, string["/dev/full"]], flags flags[o
 openat$irnet(fd const[AT_FDCWD], file ptr[in, string["/dev/irnet"]], flags flags[open_flags], mode const[0]) fd
 openat$hwrng(fd const[AT_FDCWD], file ptr[in, string["/dev/hwrng"]], flags flags[open_flags], mode const[0]) fd
 openat$hpet(fd const[AT_FDCWD], file ptr[in, string["/dev/hpet"]], flags flags[open_flags], mode const[0]) fd
-openat$autofs(fd const[AT_FDCWD], file ptr[in, string["/dev/autofs"]], flags flags[open_flags], mode const[0]) fd
+openat$autofs(fd const[AT_FDCWD], file ptr[in, string["/dev/autofs"]], flags flags[open_flags], mode const[0]) fd_autofs
 openat$keychord(fd const[AT_FDCWD], file ptr[in, string["/dev/keychord"]], flags flags[open_flags], mode const[0]) fd
 openat$zygote(fd const[AT_FDCWD], file ptr[in, string["/dev/socket/zygote"]], flags flags[open_flags], mode const[0]) fd
 openat$sw_sync(fd const[AT_FDCWD], file ptr[in, string["/dev/sw_sync"]], flags flags[open_flags], mode const[0]) fd
@@ -1193,10 +1200,11 @@ open_how {
 	resolve	flags[resolve_flags, int64]
 }
 
+# Not providing O_WRONLY means O_RDONLY.
 open_flags = O_WRONLY, O_RDWR, O_APPEND, FASYNC, O_CLOEXEC, O_CREAT, O_DIRECT, O_DIRECTORY, O_EXCL, O_LARGEFILE, O_NOATIME, O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TRUNC, __O_TMPFILE
 open_mode = S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP, S_IWGRP, S_IXGRP, S_IROTH, S_IWOTH, S_IXOTH
 resolve_flags = RESOLVE_BENEATH, RESOLVE_IN_ROOT, RESOLVE_NO_MAGICLINKS, RESOLVE_NO_SYMLINKS, RESOLVE_NO_XDEV
-madvise_flags = MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE, MADV_DONTFORK, MADV_DOFORK, MADV_HWPOISON, MADV_SOFT_OFFLINE, MADV_MERGEABLE, MADV_UNMERGEABLE, MADV_HUGEPAGE, MADV_NOHUGEPAGE, MADV_DONTDUMP, MADV_DODUMP, MADV_WIPEONFORK, MADV_KEEPONFORK, MADV_COLD, MADV_PAGEOUT
+madvise_flags = MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE, MADV_DONTFORK, MADV_DOFORK, MADV_HWPOISON, MADV_SOFT_OFFLINE, MADV_MERGEABLE, MADV_UNMERGEABLE, MADV_HUGEPAGE, MADV_NOHUGEPAGE, MADV_DONTDUMP, MADV_DODUMP, MADV_WIPEONFORK, MADV_KEEPONFORK, MADV_COLD, MADV_PAGEOUT, MADV_POPULATE_READ, MADV_POPULATE_WRITE
 fadvise_flags = POSIX_FADV_NORMAL, POSIX_FADV_SEQUENTIAL, POSIX_FADV_RANDOM, POSIX_FADV_NOREUSE, POSIX_FADV_WILLNEED, POSIX_FADV_DONTNEED
 move_pages_flags = MPOL_MF_MOVE, MPOL_MF_MOVE_ALL
 msync_flags = MS_ASYNC, MS_SYNC, MS_INVALIDATE
@@ -1295,23 +1303,22 @@ _ = KCOV_INIT_TRACE, KCOV_ENABLE, KCOV_DISABLE, KCOV_TRACE_PC, KCOV_TRACE_CMP, P
 # Hardcode KCOV_REMOTE_ENABLE value for amd64 until new kcov patches reach mainline.
 define KCOV_REMOTE_ENABLE	1075340134
 
-# Not yet implemented syscalls
-#define __NR_umask 95
-#define __NR_vhangup 153
-#define __NR__sysctl 156
-#define __NR_adjtimex 159
-#define __NR_swapon 167
-#define __NR_swapoff 168
-#define __NR_quotactl 179
-#define __NR_nfsservctl 180
-#define __NR_getcpu 309
+# Not yet implemented syscalls:
+# umask
+# vhangup
+# _sysctl
+# adjtimex
+# swapon
+# swapoff
+# nfsservctl
+# getcpu
 
-# Probably no sense in calling there.
-# Also affect system-wide state, so not reproducble anyway.
-#define __NR_gettimeofday 96
-#define __NR_settimeofday 164
-#define __NR_reboot 169
-#define __NR_sethostname 170
-#define __NR_setdomainname 171
-#define __NR_sched_get_priority_max 146
-#define __NR_sched_get_priority_min 147
+# Probably no sense in calling these.
+# Also affect system-wide state, so not reproducible anyway.
+# gettimeofday
+# settimeofday
+# reboot
+# sethostname
+# setdomainname
+# sched_get_priority_max
+# sched_get_priority_min

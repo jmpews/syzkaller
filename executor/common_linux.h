@@ -2512,9 +2512,8 @@ static bool process_command_pkt(int fd, char* buf, ssize_t buf_size)
 {
 	struct hci_command_hdr* hdr = (struct hci_command_hdr*)buf;
 	if (buf_size < (ssize_t)sizeof(struct hci_command_hdr) ||
-	    hdr->plen != buf_size - sizeof(struct hci_command_hdr)) {
+	    hdr->plen != buf_size - sizeof(struct hci_command_hdr))
 		failmsg("process_command_pkt: invalid size", "suze=%zx", buf_size);
-	}
 
 	switch (hdr->opcode) {
 	case HCI_OP_WRITE_SCAN_ENABLE: {
@@ -2961,7 +2960,7 @@ error_clear_loop:
 #elif GOARCH_ppc64 || GOARCH_ppc64le
 #include "common_kvm_ppc64.h"
 #elif !GOARCH_arm
-static long syz_kvm_setup_cpu(volatile long a0, volatile long a1, volatile long a2, volatile long a3, volatile long a4, volatile long a5, volatile long a6, volatile long a7)
+static volatile long syz_kvm_setup_cpu(volatile long a0, volatile long a1, volatile long a2, volatile long a3, volatile long a4, volatile long a5, volatile long a6, volatile long a7)
 {
 	return 0;
 }
@@ -3448,16 +3447,55 @@ static void reset_net_namespace(void)
 
 #if SYZ_EXECUTOR || (SYZ_CGROUPS && (SYZ_SANDBOX_NONE || SYZ_SANDBOX_SETUID || SYZ_SANDBOX_NAMESPACE || SYZ_SANDBOX_ANDROID))
 #include <fcntl.h>
+#include <string.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
+static void mount_cgroups(const char* dir, const char** controllers, int count)
+{
+	if (mkdir(dir, 0777)) {
+		debug("mkdir(%s) failed: %d\n", dir, errno);
+	}
+	// First, probe one-by-one to understand what controllers are present.
+	char enabled[128] = {0};
+	int i = 0;
+	for (; i < count; i++) {
+		if (mount("none", dir, "cgroup", 0, controllers[i])) {
+			debug("mount(%s, %s) failed: %d\n", dir, controllers[i], errno);
+			continue;
+		}
+		umount(dir);
+		strcat(enabled, ",");
+		strcat(enabled, controllers[i]);
+	}
+	if (enabled[0] == 0)
+		return;
+	// Now mount all at once.
+	if (mount("none", dir, "cgroup", 0, enabled + 1)) {
+		// In systemd/stretch images this is failing with EBUSY
+		// (systemd starts messing with these mounts?),
+		// so we don't fail, but just log the error.
+		debug("mount(%s, %s) failed: %d\n", dir, enabled + 1, errno);
+	}
+	if (chmod(dir, 0777)) {
+		debug("chmod(%s) failed: %d\n", dir, errno);
+	}
+}
+
 static void setup_cgroups()
 {
-#if SYZ_EXECUTOR
-	if (!flag_cgroups)
-		return;
-#endif
+	// We want to cover both cgroup and cgroup2.
+	// Each resource controller can be bound to only one of them,
+	// so to cover both we divide all controllers into 3 arbitrary groups.
+	// One group is then bound to cgroup2/unified, and 2 other groups
+	// are bound to 2 cgroup hierarchies.
+	// Note: we need to enable controllers one-by-one for both cgroup and cgroup2.
+	// If we enable all at the same time and one of them fails (b/c of older kernel
+	// or not enabled configs), then all will fail.
+	const char* unified_controllers[] = {"+cpu", "+memory", "+io", "+pids"};
+	const char* net_controllers[] = {"net", "net_prio", "devices", "blkio", "freezer"};
+	const char* cpu_controllers[] = {"cpuset", "cpuacct", "hugetlb", "rlimit"};
 	if (mkdir("/syzcgroup", 0777)) {
 		debug("mkdir(/syzcgroup) failed: %d\n", errno);
 	}
@@ -3470,27 +3508,19 @@ static void setup_cgroups()
 	if (chmod("/syzcgroup/unified", 0777)) {
 		debug("chmod(/syzcgroup/unified) failed: %d\n", errno);
 	}
-	write_file("/syzcgroup/unified/cgroup.subtree_control", "+cpu +memory +io +pids +rdma");
-	if (mkdir("/syzcgroup/cpu", 0777)) {
-		debug("mkdir(/syzcgroup/cpu) failed: %d\n", errno);
+	int unified_control = open("/syzcgroup/unified/cgroup.subtree_control", O_WRONLY);
+	if (unified_control != -1) {
+		unsigned i;
+		for (i = 0; i < sizeof(unified_controllers) / sizeof(unified_controllers[0]); i++)
+			if (write(unified_control, unified_controllers[i], strlen(unified_controllers[i])) < 0) {
+				debug("write(cgroup.subtree_control, %s) failed: %d\n", unified_controllers[i], errno);
+			}
+		close(unified_control);
 	}
-	if (mount("none", "/syzcgroup/cpu", "cgroup", 0, "cpuset,cpuacct,perf_event,hugetlb")) {
-		debug("mount(cgroup cpu) failed: %d\n", errno);
-	}
+	mount_cgroups("/syzcgroup/net", net_controllers, sizeof(net_controllers) / sizeof(net_controllers[0]));
+	mount_cgroups("/syzcgroup/cpu", cpu_controllers, sizeof(cpu_controllers) / sizeof(cpu_controllers[0]));
 	write_file("/syzcgroup/cpu/cgroup.clone_children", "1");
 	write_file("/syzcgroup/cpu/cpuset.memory_pressure_enabled", "1");
-	if (chmod("/syzcgroup/cpu", 0777)) {
-		debug("chmod(/syzcgroup/cpu) failed: %d\n", errno);
-	}
-	if (mkdir("/syzcgroup/net", 0777)) {
-		debug("mkdir(/syzcgroup/net) failed: %d\n", errno);
-	}
-	if (mount("none", "/syzcgroup/net", "cgroup", 0, "net_cls,net_prio,devices,freezer")) {
-		debug("mount(cgroup net) failed: %d\n", errno);
-	}
-	if (chmod("/syzcgroup/net", 0777)) {
-		debug("chmod(/syzcgroup/net) failed: %d\n", errno);
-	}
 }
 
 #if SYZ_EXECUTOR || SYZ_REPEAT
@@ -3600,14 +3630,38 @@ static void initialize_cgroups()
 #if SYZ_EXECUTOR || SYZ_SANDBOX_NONE || SYZ_SANDBOX_SETUID || SYZ_SANDBOX_NAMESPACE || SYZ_SANDBOX_ANDROID
 #include <errno.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static void setup_common()
 {
 	if (mount(0, "/sys/fs/fuse/connections", "fusectl", 0, 0)) {
 		debug("mount(fusectl) failed: %d\n", errno);
 	}
-#if SYZ_EXECUTOR || SYZ_CGROUPS
-	setup_cgroups();
+}
+
+static void setup_binderfs()
+{
+	// NOTE: this function must be called after chroot.
+	// Bind an instance of binderfs specific just to this executor - it will
+	// only be visible in its mount namespace and will help isolate binder
+	// devices during fuzzing.
+	// These commands will just silently fail if binderfs is not supported.
+	// Ideally it should have been added as a separate feature (with lots of
+	// minor changes throughout the code base), but it seems to be an overkill
+	// for just 2 simple lines of code.
+	if (mkdir("/dev/binderfs", 0777)) {
+		debug("mkdir(/dev/binderfs) failed: %d\n", errno);
+	}
+
+	if (mount("binder", "/dev/binderfs", "binder", 0, NULL)) {
+		debug("mount of binder at /dev/binderfs failed: %d\n", errno);
+	}
+#if !SYZ_EXECUTOR && !SYZ_USE_TMP_DIR
+	// Do a local symlink right away.
+	if (symlink("/dev/binderfs", "./binderfs")) {
+		debug("symlink(/dev/binderfs, ./binderfs) failed: %d\n", errno);
+	}
 #endif
 }
 
@@ -3782,6 +3836,7 @@ static int do_sandbox_none(void)
 #if SYZ_EXECUTOR || SYZ_WIFI
 	initialize_wifi_devices();
 #endif
+	setup_binderfs();
 	loop();
 	doexit(1);
 }
@@ -3825,6 +3880,7 @@ static int do_sandbox_setuid(void)
 #if SYZ_EXECUTOR || SYZ_WIFI
 	initialize_wifi_devices();
 #endif
+	setup_binderfs();
 
 	const int nobody = 65534;
 	if (setgroups(0, NULL))
@@ -3940,6 +3996,7 @@ static int namespace_sandbox_proc(void* arg)
 		fail("chroot failed");
 	if (chdir("/"))
 		fail("chdir failed");
+	setup_binderfs();
 	drop_caps();
 
 	loop();
@@ -4120,6 +4177,7 @@ static int do_sandbox_android(void)
 	setfilecon(".", SELINUX_LABEL_APP_DATA_FILE);
 	setcon(SELINUX_CONTEXT_UNTRUSTED_APP);
 
+	setup_binderfs();
 	loop();
 	doexit(1);
 }
@@ -4148,7 +4206,7 @@ retry:
 #if SYZ_EXECUTOR
 	if (!flag_sandbox_android)
 #endif
-		while (umount2(dir, MNT_DETACH) == 0) {
+		while (umount2(dir, MNT_DETACH | UMOUNT_NOFOLLOW) == 0) {
 			debug("umount(%s)\n", dir);
 		}
 #endif
@@ -4174,7 +4232,7 @@ retry:
 #if SYZ_EXECUTOR
 		if (!flag_sandbox_android)
 #endif
-			while (umount2(filename, MNT_DETACH) == 0) {
+			while (umount2(filename, MNT_DETACH | UMOUNT_NOFOLLOW) == 0) {
 				debug("umount(%s)\n", filename);
 			}
 #endif
@@ -4212,7 +4270,7 @@ retry:
 			if (!flag_sandbox_android) {
 #endif
 				debug("umount(%s)\n", filename);
-				if (umount2(filename, MNT_DETACH))
+				if (umount2(filename, MNT_DETACH | UMOUNT_NOFOLLOW))
 					exitf("umount(%s) failed", filename);
 #if SYZ_EXECUTOR
 			}
@@ -4247,7 +4305,7 @@ retry:
 				if (!flag_sandbox_android) {
 #endif
 					debug("umount(%s)\n", dir);
-					if (umount2(dir, MNT_DETACH))
+					if (umount2(dir, MNT_DETACH | UMOUNT_NOFOLLOW))
 						exitf("umount(%s) failed", dir);
 #if SYZ_EXECUTOR
 				}
@@ -4283,7 +4341,7 @@ static int inject_fault(int nth)
 	if (fd == -1)
 		exitf("failed to open /proc/thread-self/fail-nth");
 	char buf[16];
-	sprintf(buf, "%d", nth + 1);
+	sprintf(buf, "%d", nth);
 	if (write(fd, buf, strlen(buf)) != (ssize_t)strlen(buf))
 		exitf("failed to write /proc/thread-self/fail-nth");
 	return fd;
@@ -4403,6 +4461,7 @@ static void reset_loop()
 
 #if SYZ_EXECUTOR || SYZ_REPEAT
 #include <sys/prctl.h>
+#include <unistd.h>
 
 #define SYZ_HAVE_SETUP_TEST 1
 static void setup_test()
@@ -4418,6 +4477,12 @@ static void setup_test()
 	// Read all remaining packets from tun to better
 	// isolate consequently executing programs.
 	flush_tun();
+#endif
+#if SYZ_EXECUTOR || SYZ_USE_TMP_DIR
+	// Add a binderfs symlink to the tmp folder.
+	if (symlink("/dev/binderfs", "./binderfs")) {
+		debug("symlink(/dev/binderfs, ./binderfs) failed: %d", errno);
+	}
 #endif
 }
 #endif

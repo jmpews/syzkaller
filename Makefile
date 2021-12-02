@@ -67,8 +67,8 @@ GITREVDATE=$(shell git log -n 1 --format="%cd" --date=format:%Y%m%d-%H%M%S)
 # If you need that, build manually without these flags.
 GOFLAGS := "-ldflags=-s -w -X github.com/google/syzkaller/prog.GitRevision=$(REV) -X 'github.com/google/syzkaller/prog.gitRevisionDate=$(GITREVDATE)'"
 
-GOHOSTFLAGS := $(GOFLAGS)
-GOTARGETFLAGS := $(GOFLAGS)
+GOHOSTFLAGS ?= $(GOFLAGS)
+GOTARGETFLAGS ?= $(GOFLAGS)
 ifneq ("$(GOTAGS)", "")
 	GOHOSTFLAGS += "-tags=$(GOTAGS)"
 endif
@@ -305,7 +305,7 @@ presubmit_arch: descriptions
 	env HOSTOS=darwin HOSTARCH=arm64 $(MAKE) host
 	env TARGETOS=darwin TARGETARCH=arm64 $(MAKE) target
 	env TARGETOS=linux TARGETARCH=amd64 $(MAKE) target
-	env TARGETOS=linux TARGETARCH=amd64 SYZ_CLANG=yes $(MAKE) target
+	env TARGETOS=linux TARGETARCH=amd64 SYZ_CLANG=yes $(MAKE) executor
 	env TARGETOS=linux TARGETARCH=386 $(MAKE) target
 	env TARGETOS=linux TARGETARCH=arm64 $(MAKE) target
 	env TARGETOS=linux TARGETARCH=arm $(MAKE) target
@@ -329,7 +329,18 @@ presubmit_arch: descriptions
 presubmit_big: descriptions
 	# This target runs on CI in syz-big-env,
 	# so we test packages that need GCloud SDK or OS toolchains.
-	$(GO) test -short -coverprofile=.coverage.txt ./dashboard/app ./pkg/csource ./pkg/cover
+ifneq (, $(shell which go1.12))
+	# Test Appengine app build locally with Go 1.12 (syz-big-env has it).
+	# The actual build happens with Go 1.11, but local build fails with 1.11,
+	# so we use 1.12 as the best working approximation.
+	GO111MODULE=off go1.12 install ./dashboard/app
+endif
+	# Run tests with clang on Linux.
+	# big-env also contains toolchains for NetBSD/Fuchsia/Akaros,
+	# but these OSes use fixed toolchains and are not affected by SYZ_CLANG=yes.
+	# This way we get maximum coverage: smoke run tests Linux/gcc,
+	# while this run tests Linux/clang + the additional OSes.
+	SYZ_CLANG=yes $(GO) test -short -coverprofile=.coverage.txt ./dashboard/app ./pkg/csource ./pkg/cover
 
 presubmit_race: descriptions
 	# -race requires cgo

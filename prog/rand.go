@@ -551,10 +551,7 @@ func (r *randGen) generateParticularCall(s *state, meta *Syscall) (calls []*Call
 	if meta.Attrs.Disabled {
 		panic(fmt.Sprintf("generating disabled call %v", meta.Name))
 	}
-	c := &Call{
-		Meta: meta,
-		Ret:  MakeReturnArg(meta.Ret),
-	}
+	c := MakeCall(meta, nil)
 	c.Args, calls = r.generateArgs(s, meta.Args, DirIn)
 	r.target.assignSizesCall(c)
 	return append(calls, c)
@@ -884,7 +881,7 @@ func (r *randGen) resourceCentric(s *state, t *ResourceType, dir Dir) (arg Arg, 
 			}
 		})
 		if !includeCall {
-			p.removeCall(idx)
+			p.RemoveCall(idx)
 		} else {
 			for _, res := range newResources {
 				relatedRes[res] = true
@@ -898,7 +895,7 @@ func (r *randGen) resourceCentric(s *state, t *ResourceType, dir Dir) (arg Arg, 
 
 	// Removes the references that are not used anymore.
 	for i := biasedLen; i < len(calls); i++ {
-		p.removeCall(i)
+		p.RemoveCall(i)
 	}
 
 	return MakeResultArg(t, dir, resource, 0), p.Calls

@@ -70,6 +70,10 @@ func testTarget(t *testing.T, target *prog.Target, full bool) {
 		p.Calls = append(p.Calls, minimized.Calls...)
 		opts = allOptionsPermutations(target.OS)
 	}
+	if len(p.Calls) > 0 {
+		// Test fault injection code generation as well.
+		p.Calls[0].Props.FailNth = 1
+	}
 	for opti, opts := range opts {
 		if testing.Short() && opts.HandleSegv {
 			// HandleSegv can radically increase compilation time/memory consumption on large programs.

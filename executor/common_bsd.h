@@ -43,6 +43,7 @@ static void setup_usb(void)
 #if SYZ_EXECUTOR || SYZ_FAULT
 #include <fcntl.h>
 #include <sys/fault.h>
+#include <sys/stat.h>
 static void setup_fault(void)
 {
 	if (chmod("/dev/fault", 0666))
@@ -59,7 +60,7 @@ static int inject_fault(int nth)
 
 	en.scope = FAULT_SCOPE_LWP;
 	en.mode = 0; // FAULT_MODE_NTH_ONESHOT
-	en.nth = nth + 2; // FAULT_NTH_MIN
+	en.nth = nth + 1; // FAULT_NTH_MIN
 	if (ioctl(fd, FAULT_IOC_ENABLE, &en) != 0)
 		failmsg("FAULT_IOC_ENABLE failed", "nth=%d", nth);
 
@@ -209,7 +210,7 @@ static void initialize_tun(int tun_id)
 	execute_command(0, "ifconfig %s destroy", tun_iface);
 	execute_command(0, "ifconfig %s create", tun_iface);
 #else
-	execute_command(0, "ifconfig %s destroy", tun_device);
+	execute_command(0, "ifconfig %s destroy", tun_iface);
 #endif
 
 	tunfd = open(tun_device, O_RDWR | O_NONBLOCK);
