@@ -132,22 +132,29 @@ func foreachArgImpl(arg Arg, ctx *ArgCtx, f func(Arg, *ArgCtx)) {
 	}
 	switch a := arg.(type) {
 	case *GroupArg:
+		overlayField := 0
 		if typ, ok := a.Type().(*StructType); ok {
 			ctx.Parent = &a.Inner
 			ctx.Fields = typ.Fields
+			overlayField = typ.OverlayField
 		}
 		var totalSize uint64
-		for _, arg1 := range a.Inner {
+		for i, arg1 := range a.Inner {
+			if i == overlayField {
+				ctx.Offset = ctx0.Offset
+			}
 			foreachArgImpl(arg1, ctx, f)
 			size := arg1.Size()
 			ctx.Offset += size
-			totalSize += size
+			if totalSize < ctx.Offset {
+				totalSize = ctx.Offset - ctx0.Offset
+			}
 		}
 		claimedSize := a.Size()
 		varlen := a.Type().Varlen()
 		if varlen && totalSize > claimedSize || !varlen && totalSize != claimedSize {
 			panic(fmt.Sprintf("bad group arg size %v, should be <= %v for %#v type %#v",
-				totalSize, claimedSize, a, a.Type()))
+				totalSize, claimedSize, a, a.Type().Name()))
 		}
 	case *PointerArg:
 		if a.Res != nil {
@@ -160,29 +167,34 @@ func foreachArgImpl(arg Arg, ctx *ArgCtx, f func(Arg, *ArgCtx)) {
 	}
 }
 
-func RequiredFeatures(p *Prog) (bitmasks, csums bool) {
+type RequiredFeatures struct {
+	Bitmasks       bool
+	Csums          bool
+	FaultInjection bool
+	Async          bool
+}
+
+func (p *Prog) RequiredFeatures() RequiredFeatures {
+	features := RequiredFeatures{}
 	for _, c := range p.Calls {
 		ForeachArg(c, func(arg Arg, _ *ArgCtx) {
 			if a, ok := arg.(*ConstArg); ok {
 				if a.Type().BitfieldOffset() != 0 || a.Type().BitfieldLength() != 0 {
-					bitmasks = true
+					features.Bitmasks = true
 				}
 			}
 			if _, ok := arg.Type().(*CsumType); ok {
-				csums = true
+				features.Csums = true
 			}
 		})
-	}
-	return
-}
-
-func (p *Prog) HasFaultInjection() bool {
-	for _, call := range p.Calls {
-		if call.Props.FailNth > 0 {
-			return true
+		if c.Props.FailNth > 0 {
+			features.FaultInjection = true
+		}
+		if c.Props.Async {
+			features.Async = true
 		}
 	}
-	return false
+	return features
 }
 
 type CallFlags int

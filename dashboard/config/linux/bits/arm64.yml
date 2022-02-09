@@ -23,7 +23,8 @@ config:
  - ARCH_VEXPRESS
  - I2C_VERSATILE
  - CLK_SP810
- - ICST
+ - ICST: [-v5.16]
+ - CLK_ICST: [v5.16]
 
  # These are enabled by defconfig, but we don't test them (presumably).
  # Disable them to speed up kernel boot (slow in emulation).
@@ -47,14 +48,9 @@ config:
  - DRM_LIMA: n
  - DRM_PANFROST: n
  - DRM_LEGACY: n
- - FB_SMSCUFX: n
  - FB_IBM_GXT4500: n
  - SMS_SIANO_RC: n
  - V4L_PLATFORM_DRIVERS: n
- - MEDIA_SUPPORT: n
- - MEDIA_CEC_SUPPORT: n
- - MEDIA_PCI_SUPPORT: n
- - MEDIA_RADIO_SUPPORT: n
  - SPI: n
  - SSB: n
  - MMC: n
@@ -323,8 +319,6 @@ config:
  - VEXPRESS_CONFIG: n
  - DA8XX_MSTPRI: n
  - FSL_MC_BUS: n
- - MHI_BUS: n
- - MHI_BUS_DEBUG: n
 
  # Disable whole menu "I2C Hardware Bus support"
  - I2C_ALI1535: n

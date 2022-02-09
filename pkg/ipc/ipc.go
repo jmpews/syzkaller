@@ -42,17 +42,18 @@ const (
 	FlagEnableDevlinkPCI                         // setup devlink PCI device
 	FlagEnableVhciInjection                      // setup and use /dev/vhci for hci packet injection
 	FlagEnableWifi                               // setup and use mac80211_hwsim for wifi emulation
+	FlagDelayKcovMmap                            // manage kcov memory in an optimized way
 )
 
 // Per-exec flags for ExecOpts.Flags.
 type ExecFlags uint64
 
 const (
-	FlagCollectCover         ExecFlags = 1 << iota // collect coverage
+	FlagCollectSignal        ExecFlags = 1 << iota // collect feedback signals
+	FlagCollectCover                               // collect coverage
 	FlagDedupCover                                 // deduplicate coverage in executor
 	FlagCollectComps                               // collect KCOV comparisons
 	FlagThreaded                                   // use multiple threads to mitigate blocked syscalls
-	FlagCollide                                    // collide syscalls to provoke data races
 	FlagEnableCoverageFilter                       // setup and use bitmap to do coverage filter
 )
 

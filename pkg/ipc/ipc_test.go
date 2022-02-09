@@ -81,13 +81,21 @@ func TestExecutor(t *testing.T) {
 	}
 }
 
+func prepareTestProgram(target *prog.Target) *prog.Prog {
+	p := target.DataMmapProg()
+	if len(p.Calls) > 1 {
+		p.Calls[1].Props.Async = true
+	}
+	return p
+}
+
 func TestExecute(t *testing.T) {
 	target, _, _, useShmem, useForkServer, timeouts := initTest(t)
 
 	bin := buildExecutor(t, target)
 	defer os.Remove(bin)
 
-	flags := []ExecFlags{0, FlagThreaded, FlagThreaded | FlagCollide}
+	flags := []ExecFlags{0, FlagThreaded}
 	for _, flag := range flags {
 		t.Logf("testing flags 0x%x\n", flag)
 		cfg := &Config{
@@ -103,7 +111,7 @@ func TestExecute(t *testing.T) {
 		defer env.Close()
 
 		for i := 0; i < 10; i++ {
-			p := target.DataMmapProg()
+			p := prepareTestProgram(target)
 			opts := &ExecOpts{
 				Flags: flag,
 			}
@@ -114,8 +122,8 @@ func TestExecute(t *testing.T) {
 			if hanged {
 				t.Fatalf("program hanged:\n%s", output)
 			}
-			if len(info.Calls) == 0 {
-				t.Fatalf("no calls executed:\n%s", output)
+			if len(info.Calls) != len(p.Calls) {
+				t.Fatalf("executed less calls (%v) than prog len(%v):\n%s", len(info.Calls), len(p.Calls), output)
 			}
 			if info.Calls[0].Errno != 0 {
 				t.Fatalf("simple call failed: %v\n%s", info.Calls[0].Errno, output)

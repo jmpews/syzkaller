@@ -4,7 +4,6 @@
 package main
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -13,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/syzkaller/pkg/osutil"
+	"github.com/google/syzkaller/pkg/stats"
 )
 
 type BugInfo struct {
@@ -23,8 +23,11 @@ type BugInfo struct {
 type RunResult struct {
 	Workdir     string
 	Bugs        []BugInfo
-	StatRecords []map[string]uint64
+	StatRecords []StatRecord
 }
+
+// A snapshot of syzkaller statistics at a particular time.
+type StatRecord map[string]uint64
 
 // The grouping of single instance results. Taken by all stat generating routines.
 type RunResultGroup struct {
@@ -59,16 +62,16 @@ func collectBugs(workdir string) ([]BugInfo, error) {
 	return bugs, nil
 }
 
-func readBenches(benchFile string) ([]map[string]uint64, error) {
+func readBenches(benchFile string) ([]StatRecord, error) {
 	f, err := os.Open(benchFile)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 	dec := json.NewDecoder(f)
-	ret := []map[string]uint64{}
+	ret := []StatRecord{}
 	for dec.More() {
-		curr := make(map[string]uint64)
+		curr := make(StatRecord)
 		if err := dec.Decode(&curr); err == nil {
 			ret = append(ret, curr)
 		}
@@ -76,25 +79,25 @@ func readBenches(benchFile string) ([]map[string]uint64, error) {
 	return ret, nil
 }
 
-func avgBenches(infos []map[string]uint64) map[string]uint64 {
-	ret := make(map[string]uint64)
-	if len(infos) == 0 {
-		return ret
-	}
-	for _, stat := range infos {
-		for key, value := range stat {
-			ret[key] += value
+// The input are stat snapshots of different instances taken at the same time.
+// This function groups those data points per stat types (e.g. exec total, crashes, etc.).
+func groupSamples(records []StatRecord) map[string]*stats.Sample {
+	ret := make(map[string]*stats.Sample)
+	for _, record := range records {
+		for key, value := range record {
+			if ret[key] == nil {
+				ret[key] = &stats.Sample{}
+			}
+			ret[key].Xs = append(ret[key].Xs, float64(value))
 		}
-	}
-	for key, value := range ret {
-		ret[key] = value / uint64(len(infos))
 	}
 	return ret
 }
 
 type BugSummary struct {
-	title string
-	found map[string]bool
+	title        string
+	found        map[string]bool
+	resultsCount map[string]int // the number of run results that have found this bug
 }
 
 // If there are several instances belonging to a single checkout, we're interested in the
@@ -107,12 +110,14 @@ func summarizeBugs(groups []RunResultGroup) ([]*BugSummary, error) {
 				summary := bugsMap[bug.Title]
 				if summary == nil {
 					summary = &BugSummary{
-						title: bug.Title,
-						found: make(map[string]bool),
+						title:        bug.Title,
+						found:        make(map[string]bool),
+						resultsCount: make(map[string]int),
 					}
 					bugsMap[bug.Title] = summary
 				}
 				summary.found[group.Name] = true
+				summary.resultsCount[group.Name]++
 			}
 		}
 	}
@@ -125,90 +130,135 @@ func summarizeBugs(groups []RunResultGroup) ([]*BugSummary, error) {
 
 // For each checkout, take the union of sets of bugs found by each instance.
 // Then output these unions as a single table.
-func (view StatView) GenerateBugTable() ([][]string, error) {
-	table := [][]string{}
-	titles := []string{""}
+func (view StatView) GenerateBugTable() (*Table, error) {
+	table := NewTable("Bug")
 	for _, group := range view.Groups {
-		titles = append(titles, group.Name)
+		table.AddColumn(group.Name)
 	}
 	summaries, err := summarizeBugs(view.Groups)
 	if err != nil {
 		return nil, err
 	}
-
-	table = append(table, titles)
 	for _, bug := range summaries {
-		row := []string{bug.title}
 		for _, group := range view.Groups {
-			val := ""
 			if bug.found[group.Name] {
-				val = "YES"
+				table.Set(bug.title, group.Name, "YES")
 			}
-			row = append(row, val)
 		}
-		table = append(table, row)
+	}
+	return table, nil
+}
+
+func (view StatView) GenerateBugCountsTable() (*Table, error) {
+	table := NewTable("Bug")
+	for _, group := range view.Groups {
+		table.AddColumn(group.Name)
+	}
+	summaries, err := summarizeBugs(view.Groups)
+	if err != nil {
+		return nil, err
+	}
+	for _, bug := range summaries {
+		for _, group := range view.Groups {
+			if bug.found[group.Name] {
+				count := bug.resultsCount[group.Name]
+				percent := float64(count) / float64(len(group.Results)) * 100.0
+				value := fmt.Sprintf("%v (%.1f%%)", count, percent)
+				table.Set(bug.title, group.Name, value)
+			}
+		}
 	}
 	return table, nil
 }
 
 func (group RunResultGroup) AvgStatRecords() []map[string]uint64 {
 	ret := []map[string]uint64{}
-	for i := 0; ; i++ {
-		toAvg := []map[string]uint64{}
-		for _, result := range group.Results {
-			if i < len(result.StatRecords) {
-				toAvg = append(toAvg, result.StatRecords[i])
-			}
+	commonLen := group.minResultLength()
+	for i := 0; i < commonLen; i++ {
+		record := make(map[string]uint64)
+		for key, value := range group.groupNthRecord(i) {
+			record[key] = uint64(value.Median())
 		}
-		if len(toAvg) != len(group.Results) || len(toAvg) == 0 {
-			break
-		}
-		ret = append(ret, avgBenches(toAvg))
+		ret = append(ret, record)
 	}
 	return ret
 }
 
-func (view StatView) StatsTable() ([][]string, error) {
-	// Ensure that everything is at the same point in time.
-	avgs := make(map[string][]map[string]uint64)
-	commonLength := 0
+func (group RunResultGroup) minResultLength() int {
+	if len(group.Results) == 0 {
+		return 0
+	}
+	ret := len(group.Results[0].StatRecords)
+	for _, result := range group.Results {
+		currLen := len(result.StatRecords)
+		if currLen < ret {
+			ret = currLen
+		}
+	}
+	return ret
+}
+
+func (group RunResultGroup) groupNthRecord(i int) map[string]*stats.Sample {
+	records := []StatRecord{}
+	for _, result := range group.Results {
+		records = append(records, result.StatRecords[i])
+	}
+	return groupSamples(records)
+}
+
+func (view StatView) StatsTable() (*Table, error) {
+	return view.AlignedStatsTable("uptime")
+}
+
+func (view StatView) AlignedStatsTable(field string) (*Table, error) {
+	// We assume that the stats values are nonnegative.
+	var commonValue float64
 	for _, group := range view.Groups {
-		records := group.AvgStatRecords()
-		if len(records) == 0 {
+		minLen := group.minResultLength()
+		if minLen == 0 {
 			continue
 		}
-		if commonLength > len(records) || commonLength == 0 {
-			commonLength = len(records)
+		sampleGroup := group.groupNthRecord(minLen - 1)
+		sample, ok := sampleGroup[field]
+		if !ok {
+			return nil, fmt.Errorf("field %v is not found", field)
 		}
-		avgs[group.Name] = records
+		currValue := sample.Median()
+		if currValue < commonValue || commonValue == 0 {
+			commonValue = currValue
+		}
 	}
-
-	// Map: stats key x group name -> value.
+	table := NewTable("Property")
 	cells := make(map[string]map[string]string)
-	for name, avg := range avgs {
-		for key, value := range avg[commonLength-1] {
+	for _, group := range view.Groups {
+		table.AddColumn(group.Name)
+		minLen := group.minResultLength()
+		if minLen == 0 {
+			// Skip empty groups.
+			continue
+		}
+		// Unwind the samples so that they are aligned on the field value.
+		var samples map[string]*stats.Sample
+		for i := minLen - 1; i >= 0; i-- {
+			candidate := group.groupNthRecord(i)
+			// TODO: consider data interpolation.
+			if candidate[field].Median() >= commonValue {
+				samples = candidate
+			} else {
+				break
+			}
+		}
+		for key, sample := range samples {
 			if _, ok := cells[key]; !ok {
 				cells[key] = make(map[string]string)
 			}
-			cells[key][name] = fmt.Sprintf("%d", value)
+			table.Set(key, group.Name, NewValueCell(sample))
 		}
-	}
-	title := []string{""}
-	for _, group := range view.Groups {
-		title = append(title, group.Name)
-	}
-	table := [][]string{title}
-	for key, valuesMap := range cells {
-		row := []string{key}
-		for _, group := range view.Groups {
-			row = append(row, valuesMap[group.Name])
-		}
-		table = append(table, row)
 	}
 	return table, nil
 }
 
-func (view StatView) InstanceStatsTable() ([][]string, error) {
+func (view StatView) InstanceStatsTable() (*Table, error) {
 	newView := StatView{}
 	for _, group := range view.Groups {
 		for i, result := range group.Results {
@@ -253,11 +303,11 @@ func (view *StatView) SaveAvgBenches(benchDir string) ([]string, error) {
 	return files, nil
 }
 
-func SaveTableAsCsv(table [][]string, fileName string) error {
-	f, err := os.Create(fileName)
-	if err != nil {
-		return err
+func (view *StatView) IsEmpty() bool {
+	for _, group := range view.Groups {
+		if group.minResultLength() > 0 {
+			return false
+		}
 	}
-	defer f.Close()
-	return csv.NewWriter(f).WriteAll(table)
+	return true
 }

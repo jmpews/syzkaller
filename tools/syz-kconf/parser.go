@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/google/syzkaller/pkg/kconfig"
 	"github.com/google/syzkaller/pkg/vcs"
@@ -18,6 +19,7 @@ import (
 type Instance struct {
 	Name      string
 	Kernel    Kernel
+	Compiler  string
 	Verbatim  []byte
 	Shell     []Shell
 	Features  Features
@@ -78,6 +80,7 @@ type rawFile struct {
 		Repo string
 		Tag  string
 	}
+	Compiler string
 	Shell    []yaml.Node
 	Verbatim string
 	Config   []yaml.Node
@@ -180,6 +183,12 @@ func mergeFile(inst *Instance, raw *rawFile, file string, errs *Errors) {
 		}
 		inst.Kernel = raw.Kernel
 	}
+	if raw.Compiler != "" {
+		if inst.Compiler != "" {
+			errs.push("%v: compiler is set twice", file)
+		}
+		inst.Compiler = raw.Compiler
+	}
 	for _, node := range raw.Shell {
 		cmd, _, constraints, err := parseNode(node)
 		if err != nil {
@@ -190,7 +199,9 @@ func mergeFile(inst *Instance, raw *rawFile, file string, errs *Errors) {
 			Constraints: constraints,
 		})
 	}
-	inst.Verbatim = append(append(inst.Verbatim, raw.Verbatim...), '\n')
+	if raw.Verbatim != "" {
+		inst.Verbatim = append(append(inst.Verbatim, strings.TrimSpace(raw.Verbatim)...), '\n')
+	}
 	for _, node := range raw.Config {
 		mergeConfig(inst, file, node, false, errs)
 	}

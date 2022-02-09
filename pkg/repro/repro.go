@@ -442,7 +442,7 @@ func (ctx *context) minimizeProg(res *Result) (*Result, error) {
 	return res, nil
 }
 
-// Simplify repro options (threaded, collide, sandbox, etc).
+// Simplify repro options (threaded, sandbox, etc).
 func (ctx *context) simplifyProg(res *Result) (*Result, error) {
 	ctx.reproLogf(2, "simplifying guilty program options")
 	start := time.Now()
@@ -631,6 +631,9 @@ func (ctx *context) testImpl(inst *vm.Instance, command string, duration time.Du
 		ctx.reproLogf(2, "program did not crash")
 		return false, nil
 	}
+	if err := ctx.reporter.Symbolize(rep); err != nil {
+		return false, fmt.Errorf("failed to symbolize report: %v", err)
+	}
 	if rep.Suppressed {
 		ctx.reproLogf(2, "suppressed program crash: %v", rep.Title)
 		return false, nil
@@ -783,13 +786,6 @@ func encodeEntries(entries []*prog.LogEntry) []byte {
 type Simplify func(opts *csource.Options) bool
 
 var progSimplifies = []Simplify{
-	func(opts *csource.Options) bool {
-		if !opts.Collide {
-			return false
-		}
-		opts.Collide = false
-		return true
-	},
 	func(opts *csource.Options) bool {
 		if opts.Collide || !opts.Threaded {
 			return false

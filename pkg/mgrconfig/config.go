@@ -141,6 +141,11 @@ type Config struct {
 	// By default the value is 0, i.e. all VMs can be used for all purposes.
 	FuzzingVMs int `json:"fuzzing_vms,omitempty"`
 
+	// Keep existing programs in the corpus even if they no longer pass syscall filters.
+	// By default it is true, as this is the desired behavior when executing syzkaller
+	// locally.
+	PreserveCorpus bool `json:"preserve_corpus"`
+
 	// List of syscalls to test (optional). For example:
 	//	"enable_syscalls": [ "mmap", "openat$ashmem", "ioctl$ASHMEM*" ]
 	EnabledSyscalls []string `json:"enable_syscalls,omitempty"`
@@ -153,6 +158,10 @@ type Config struct {
 	// Completely ignore reports matching these regexps (don't save nor reboot),
 	// must match the first line of crash message.
 	Ignores []string `json:"ignores,omitempty"`
+	// List of regexps to select bugs of interest.
+	// If this list is not empty and none of the regexps match a bug, it's suppressed.
+	// Regexps are matched against bug title, guilty file and maintainer emails.
+	Interests []string `json:"interests,omitempty"`
 
 	// Type of virtual machine to use, e.g. "qemu", "gce", "android", "isolated", etc.
 	Type string `json:"type"`

@@ -37,6 +37,10 @@ typedef signed int ssize_t;
 #include <errno.h>
 #endif
 
+#if !SYZ_EXECUTOR
+/*{{{SYSCALL_DEFINES}}}*/
+#endif
+
 #if SYZ_EXECUTOR && !GOOS_linux
 #if !GOOS_windows
 #include <unistd.h>
@@ -46,6 +50,10 @@ NORETURN void doexit(int status)
 	_exit(status);
 	for (;;) {
 	}
+}
+NORETURN void doexit_thread(int status)
+{
+	doexit(status);
 }
 #endif
 
@@ -66,6 +74,7 @@ static unsigned long long procid;
 #include <sys/syscall.h>
 #endif
 
+static __thread int clone_ongoing;
 static __thread int skip_segv;
 static __thread jmp_buf segv_env;
 
@@ -79,6 +88,11 @@ static void recover(void)
 
 static void segv_handler(int sig, siginfo_t* info, void* ctx)
 {
+
+	if (__atomic_load_n(&clone_ongoing, __ATOMIC_RELAXED) != 0) {
+		doexit_thread(sig);
+	}
+
 	uintptr_t addr = (uintptr_t)info->si_addr;
 	const uintptr_t prog_start = 1 << 20;
 	const uintptr_t prog_end = 100 << 20;
@@ -1667,19 +1681,28 @@ static int tunfd = -1;
 
 #if GOOS_netbsd
 #define MAX_TUN 64
-
+#elif GOOS_freebsd
+#define MAX_TUN 256
+#elif GOOS_openbsd
+#define MAX_TUN 8
 #else
 #define MAX_TUN 4
 #endif
 #define TUN_IFACE "tap%d"
+#define MAX_TUN_IFACE_SIZE sizeof("tap2147483647")
 #define TUN_DEVICE "/dev/tap%d"
+#define MAX_TUN_DEVICE_SIZE sizeof("/dev/tap2147483647")
 
 #define LOCAL_MAC "aa:aa:aa:aa:aa:aa"
 #define REMOTE_MAC "aa:aa:aa:aa:aa:bb"
 #define LOCAL_IPV4 "172.20.%d.170"
+#define MAX_LOCAL_IPV4_SIZE sizeof("172.20.255.170")
 #define REMOTE_IPV4 "172.20.%d.187"
-#define LOCAL_IPV6 "fe80::%02hxaa"
-#define REMOTE_IPV6 "fe80::%02hxbb"
+#define MAX_REMOTE_IPV4_SIZE sizeof("172.20.255.187")
+#define LOCAL_IPV6 "fe80::%02xaa"
+#define MAX_LOCAL_IPV6_SIZE sizeof("fe80::ffaa")
+#define REMOTE_IPV6 "fe80::%02xbb"
+#define MAX_REMOTE_IPV6_SIZE sizeof("fe80::ffbb")
 
 static void vsnprintf_check(char* str, size_t size, const char* format, va_list args)
 {
@@ -1729,10 +1752,10 @@ static void initialize_tun(int tun_id)
 	if (tun_id < 0 || tun_id >= MAX_TUN)
 		failmsg("tun_id out of range", "tun_id=%d", tun_id);
 
-	char tun_device[sizeof(TUN_DEVICE)];
+	char tun_device[MAX_TUN_DEVICE_SIZE];
 	snprintf_check(tun_device, sizeof(tun_device), TUN_DEVICE, tun_id);
 
-	char tun_iface[sizeof(TUN_IFACE)];
+	char tun_iface[MAX_TUN_IFACE_SIZE];
 	snprintf_check(tun_iface, sizeof(tun_iface), TUN_IFACE, tun_id);
 
 #if GOOS_netbsd
@@ -1757,7 +1780,7 @@ static void initialize_tun(int tun_id)
 		return;
 #endif
 	}
-	const int kTunFd = 240;
+	const int kTunFd = 200;
 	if (dup2(tunfd, kTunFd) < 0)
 		fail("dup2(tunfd, kTunFd) failed");
 	close(tunfd);
@@ -1772,18 +1795,18 @@ static void initialize_tun(int tun_id)
 #else
 	execute_command(1, "ifconfig %s ether %s", tun_iface, local_mac);
 #endif
-	char local_ipv4[sizeof(LOCAL_IPV4)];
+	char local_ipv4[MAX_LOCAL_IPV4_SIZE];
 	snprintf_check(local_ipv4, sizeof(local_ipv4), LOCAL_IPV4, tun_id);
 	execute_command(1, "ifconfig %s inet %s netmask 255.255.255.0", tun_iface, local_ipv4);
 	char remote_mac[sizeof(REMOTE_MAC)];
-	char remote_ipv4[sizeof(REMOTE_IPV4)];
+	char remote_ipv4[MAX_REMOTE_IPV4_SIZE];
 	snprintf_check(remote_mac, sizeof(remote_mac), REMOTE_MAC);
 	snprintf_check(remote_ipv4, sizeof(remote_ipv4), REMOTE_IPV4, tun_id);
 	execute_command(0, "arp -s %s %s", remote_ipv4, remote_mac);
-	char local_ipv6[sizeof(LOCAL_IPV6)];
+	char local_ipv6[MAX_LOCAL_IPV6_SIZE];
 	snprintf_check(local_ipv6, sizeof(local_ipv6), LOCAL_IPV6, tun_id);
 	execute_command(1, "ifconfig %s inet6 %s", tun_iface, local_ipv6);
-	char remote_ipv6[sizeof(REMOTE_IPV6)];
+	char remote_ipv6[MAX_REMOTE_IPV6_SIZE];
 	snprintf_check(remote_ipv6, sizeof(remote_ipv6), REMOTE_IPV6, tun_id);
 	execute_command(0, "ndp -s %s%%%s %s", remote_ipv6, tun_iface, remote_mac);
 }
@@ -2823,7 +2846,7 @@ static void initialize_tun(void)
 		return;
 #endif
 	}
-	const int kTunFd = 240;
+	const int kTunFd = 200;
 	if (dup2(tunfd, kTunFd) < 0)
 		fail("dup2(tunfd, kTunFd) failed");
 	close(tunfd);
@@ -2875,7 +2898,7 @@ static void initialize_tun(void)
 #endif
 
 #if SYZ_EXECUTOR || __NR_syz_init_net_socket || SYZ_DEVLINK_PCI
-const int kInitNetNsFd = 239;
+const int kInitNetNsFd = 201;
 #endif
 
 #if SYZ_EXECUTOR || SYZ_DEVLINK_PCI || SYZ_NET_DEVICES
@@ -3895,12 +3918,6 @@ struct io_uring_params {
 
 #include <sys/mman.h>
 #include <unistd.h>
-
-#if GOARCH_mips64le
-#define sys_io_uring_setup 5425
-#else
-#define sys_io_uring_setup 425
-#endif
 static long syz_io_uring_setup(volatile long a0, volatile long a1, volatile long a2, volatile long a3, volatile long a4, volatile long a5)
 {
 	uint32 entries = (uint32)a0;
@@ -3910,7 +3927,7 @@ static long syz_io_uring_setup(volatile long a0, volatile long a1, volatile long
 	void** ring_ptr_out = (void**)a4;
 	void** sqes_ptr_out = (void**)a5;
 
-	uint32 fd_io_uring = syscall(sys_io_uring_setup, entries, setup_params);
+	uint32 fd_io_uring = syscall(__NR_io_uring_setup, entries, setup_params);
 	uint32 sq_ring_sz = setup_params->sq_off.array + setup_params->sq_entries * sizeof(uint32);
 	uint32 cq_ring_sz = setup_params->cq_off.cqes + setup_params->cq_entries * SIZEOF_IO_URING_CQE;
 	uint32 ring_sz = sq_ring_sz > cq_ring_sz ? sq_ring_sz : cq_ring_sz;
@@ -5973,7 +5990,7 @@ static void initialize_vhci()
 	vhci_fd = open("/dev/vhci", O_RDWR);
 	if (vhci_fd == -1)
 		fail("open /dev/vhci failed");
-	const int kVhciFd = 241;
+	const int kVhciFd = 202;
 	if (dup2(vhci_fd, kVhciFd) < 0)
 		fail("dup2(vhci_fd, kVhciFd) failed");
 	close(vhci_fd);
@@ -6105,24 +6122,6 @@ struct fs_image_segment {
 #define IMAGE_MAX_SEGMENTS 4096
 #define IMAGE_MAX_SIZE (129 << 20)
 
-#if GOARCH_386
-#define sys_memfd_create 356
-#elif GOARCH_amd64
-#define sys_memfd_create 319
-#elif GOARCH_arm
-#define sys_memfd_create 385
-#elif GOARCH_arm64
-#define sys_memfd_create 279
-#elif GOARCH_ppc64le
-#define sys_memfd_create 360
-#elif GOARCH_mips64le
-#define sys_memfd_create 314
-#elif GOARCH_s390x
-#define sys_memfd_create 350
-#elif GOARCH_riscv64
-#define sys_memfd_create 279
-#endif
-
 static unsigned long fs_image_segment_check(unsigned long size, unsigned long nsegs, struct fs_image_segment* segs)
 {
 	if (nsegs > IMAGE_MAX_SEGMENTS)
@@ -6145,7 +6144,7 @@ static int setup_loop_device(long unsigned size, long unsigned nsegs, struct fs_
 	int err = 0, loopfd = -1;
 
 	size = fs_image_segment_check(size, nsegs, segs);
-	int memfd = syscall(sys_memfd_create, "syzkaller", 0);
+	int memfd = syscall(__NR_memfd_create, "syzkaller", 0);
 	if (memfd == -1) {
 		err = errno;
 		goto error;
@@ -10184,6 +10183,63 @@ static long syz_80211_join_ibss(volatile long a0, volatile long a1, volatile lon
 
 #endif
 
+#if SYZ_EXECUTOR || __NR_syz_clone || __NR_syz_clone3
+#if SYZ_EXECUTOR
+#define USLEEP_FORKED_CHILD (3 * syscall_timeout_ms * 1000)
+#else
+#define USLEEP_FORKED_CHILD (3 * /*{{{BASE_CALL_TIMEOUT_MS}}}*/ *1000)
+#endif
+
+static long handle_clone_ret(long ret)
+{
+	if (ret != 0) {
+#if SYZ_EXECUTOR || SYZ_HANDLE_SEGV
+		__atomic_store_n(&clone_ongoing, 0, __ATOMIC_RELAXED);
+#endif
+		return ret;
+	}
+	usleep(USLEEP_FORKED_CHILD);
+	syscall(__NR_exit, 0);
+	while (1) {
+	}
+}
+#endif
+
+#if SYZ_EXECUTOR || __NR_syz_clone
+static long syz_clone(volatile long flags, volatile long stack, volatile long stack_len,
+		      volatile long ptid, volatile long ctid, volatile long tls)
+{
+	long sp = (stack + stack_len) & ~15;
+#if SYZ_EXECUTOR || SYZ_HANDLE_SEGV
+	__atomic_store_n(&clone_ongoing, 1, __ATOMIC_RELAXED);
+#endif
+	long ret = (long)syscall(__NR_clone, flags & ~CLONE_VM, sp, ptid, ctid, tls);
+	return handle_clone_ret(ret);
+}
+#endif
+
+#if SYZ_EXECUTOR || __NR_syz_clone3
+#include <linux/sched.h>
+#include <sched.h>
+
+#define MAX_CLONE_ARGS_BYTES 256
+static long syz_clone3(volatile long a0, volatile long a1)
+{
+	unsigned long copy_size = a1;
+	if (copy_size < sizeof(uint64) || copy_size > MAX_CLONE_ARGS_BYTES)
+		return -1;
+	char clone_args[MAX_CLONE_ARGS_BYTES];
+	memcpy(&clone_args, (void*)a0, copy_size);
+	uint64* flags = (uint64*)&clone_args;
+	*flags &= ~CLONE_VM;
+#if SYZ_EXECUTOR || SYZ_HANDLE_SEGV
+	__atomic_store_n(&clone_ongoing, 1, __ATOMIC_RELAXED);
+#endif
+	return handle_clone_ret((long)syscall(__NR_clone3, &clone_args, copy_size));
+}
+
+#endif
+
 #elif GOOS_test
 
 #include <stdlib.h>
@@ -10404,6 +10460,7 @@ static void use_temporary_dir(void)
 #error "unknown OS"
 #endif
 
+
 #if SYZ_EXECUTOR || __NR_syz_execute_func
 static long syz_execute_func(volatile long text)
 {
@@ -10457,10 +10514,6 @@ static void loop(void)
 	fprintf(stderr, "### start\n");
 #endif
 	int i, call, thread;
-#if SYZ_COLLIDE
-	int collide = 0;
-again:
-#endif
 	for (call = 0; call < /*{{{NUM_CALLS}}}*/; call++) {
 		for (thread = 0; thread < (int)(sizeof(threads) / sizeof(threads[0])); thread++) {
 			struct thread_t* th = &threads[thread];
@@ -10477,8 +10530,8 @@ again:
 			th->call = call;
 			__atomic_fetch_add(&running, 1, __ATOMIC_RELAXED);
 			event_set(&th->ready);
-#if SYZ_COLLIDE
-			if (collide && (call % 2) == 0)
+#if SYZ_ASYNC
+			if (/*{{{ASYNC_CONDITIONS}}}*/)
 				break;
 #endif
 			event_timedwait(&th->done, /*{{{CALL_TIMEOUT_MS}}}*/);
@@ -10489,12 +10542,6 @@ again:
 		sleep_ms(1);
 #if SYZ_HAVE_CLOSE_FDS
 	close_fds();
-#endif
-#if SYZ_COLLIDE
-	if (!collide) {
-		collide = 1;
-		goto again;
-	}
 #endif
 }
 #endif
@@ -10644,7 +10691,6 @@ static void loop(void)
 #endif
 
 #if !SYZ_EXECUTOR
-/*{{{SYSCALL_DEFINES}}}*/
 
 /*{{{RESULTS}}}*/
 

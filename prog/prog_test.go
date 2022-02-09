@@ -9,6 +9,8 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+
+	"github.com/google/syzkaller/pkg/testutil"
 )
 
 func TestGeneration(t *testing.T) {
@@ -21,7 +23,7 @@ func TestGeneration(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	target, _, _ := initTest(t)
-	ForeachType(target.Syscalls, func(typ Type, ctx TypeCtx) {
+	ForeachType(target.Syscalls, func(typ Type, ctx *TypeCtx) {
 		arg := typ.DefaultArg(ctx.Dir)
 		if !isDefault(arg) {
 			t.Errorf("default arg is not default: %s\ntype: %#v\narg: %#v",
@@ -142,7 +144,7 @@ func TestVmaType(t *testing.T) {
 // deserialized for another arch. This happens when managers exchange
 // programs via hub.
 func TestCrossTarget(t *testing.T) {
-	if raceEnabled {
+	if testutil.RaceEnabled {
 		t.Skip("skipping in race mode, too slow")
 	}
 	t.Parallel()
@@ -220,7 +222,7 @@ func TestSpecialStructs(t *testing.T) {
 			t.Run(special, func(t *testing.T) {
 				var typ Type
 				for i := 0; i < len(target.Syscalls) && typ == nil; i++ {
-					ForeachCallType(target.Syscalls[i], func(t Type, ctx TypeCtx) {
+					ForeachCallType(target.Syscalls[i], func(t Type, ctx *TypeCtx) {
 						if ctx.Dir == DirOut {
 							return
 						}

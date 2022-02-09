@@ -70,9 +70,9 @@ type Manager struct {
 	phase                 int
 	targetEnabledSyscalls map[*prog.Syscall]bool
 
-	candidates       []rpctype.RPCCandidate // untriaged inputs from corpus and hub
+	candidates       []rpctype.Candidate // untriaged inputs from corpus and hub
 	disabledHashes   map[string]struct{}
-	corpus           map[string]rpctype.RPCInput
+	corpus           map[string]rpctype.Input
 	seeds            [][]byte
 	newRepros        [][]byte
 	lastMinCorpus    int
@@ -162,7 +162,7 @@ func RunManager(cfg *mgrconfig.Config) {
 		startTime:        time.Now(),
 		stats:            &Stats{haveHub: cfg.HubClient != ""},
 		crashTypes:       make(map[string]bool),
-		corpus:           make(map[string]rpctype.RPCInput),
+		corpus:           make(map[string]rpctype.Input),
 		disabledHashes:   make(map[string]struct{}),
 		memoryLeakFrames: make(map[string]bool),
 		dataRaceFrames:   make(map[string]bool),
@@ -444,9 +444,12 @@ func (mgr *Manager) vmLoop() {
 
 func (mgr *Manager) preloadCorpus() {
 	log.Logf(0, "loading corpus...")
-	corpusDB, err := db.Open(filepath.Join(mgr.cfg.Workdir, "corpus.db"))
+	corpusDB, err := db.Open(filepath.Join(mgr.cfg.Workdir, "corpus.db"), true)
 	if err != nil {
-		log.Fatalf("failed to open corpus database: %v", err)
+		if corpusDB == nil {
+			log.Fatalf("failed to open corpus database: %v", err)
+		}
+		log.Logf(0, "read %v inputs from corpus and got error: %v", len(corpusDB.Records), err)
 	}
 	mgr.corpusDB = corpusDB
 
@@ -528,18 +531,48 @@ func (mgr *Manager) loadProg(data []byte, minimized, smashed bool) bool {
 		return false
 	}
 	if disabled {
-		// This program contains a disabled syscall.
-		// We won't execute it, but remember its hash so
-		// it is not deleted during minimization.
-		mgr.disabledHashes[hash.String(data)] = struct{}{}
+		if mgr.cfg.PreserveCorpus {
+			// This program contains a disabled syscall.
+			// We won't execute it, but remember its hash so
+			// it is not deleted during minimization.
+			mgr.disabledHashes[hash.String(data)] = struct{}{}
+		} else {
+			// We cut out the disabled syscalls and let syz-fuzzer retriage and
+			// minimize what remains from the prog. The original prog will be
+			// deleted from the corpus.
+			leftover := programLeftover(mgr.target, mgr.targetEnabledSyscalls, data)
+			if len(leftover) > 0 {
+				mgr.candidates = append(mgr.candidates, rpctype.Candidate{
+					Prog:      leftover,
+					Minimized: false,
+					Smashed:   smashed,
+				})
+			}
+		}
 		return true
 	}
-	mgr.candidates = append(mgr.candidates, rpctype.RPCCandidate{
+	mgr.candidates = append(mgr.candidates, rpctype.Candidate{
 		Prog:      data,
 		Minimized: minimized,
 		Smashed:   smashed,
 	})
 	return true
+}
+
+func programLeftover(target *prog.Target, enabled map[*prog.Syscall]bool, data []byte) []byte {
+	p, err := target.Deserialize(data, prog.NonStrict)
+	if err != nil {
+		panic(fmt.Sprintf("subsequent deserialization failed: %s", data))
+	}
+	for i := 0; i < len(p.Calls); {
+		c := p.Calls[i]
+		if !enabled[c.Meta] {
+			p.RemoveCall(i)
+			continue
+		}
+		i++
+	}
+	return p.Serialize()
 }
 
 func checkProgram(target *prog.Target, enabled map[*prog.Syscall]bool, data []byte) (bad, disabled bool) {
@@ -664,6 +697,9 @@ func (mgr *Manager) emailCrash(crash *Crash) {
 }
 
 func (mgr *Manager) saveCrash(crash *Crash) bool {
+	if err := mgr.reporter.Symbolize(crash.Report); err != nil {
+		log.Logf(0, "failed to symbolize report: %v", err)
+	}
 	if crash.Type == report.MemoryLeak {
 		mgr.mu.Lock()
 		mgr.memoryLeakFrames[crash.Frame] = true
@@ -688,9 +724,6 @@ func (mgr *Manager) saveCrash(crash *Crash) bool {
 		// e.g. if there are some spikes in suppressed reports.
 		crash.Title = "suppressed report"
 		mgr.stats.crashSuppressed.inc()
-	}
-	if err := mgr.reporter.Symbolize(crash.Report); err != nil {
-		log.Logf(0, "failed to symbolize report: %v", err)
 	}
 
 	mgr.stats.crashes.inc()
@@ -846,9 +879,6 @@ func (mgr *Manager) saveFailedRepro(rep *report.Report, stats *repro.Stats) {
 
 func (mgr *Manager) saveRepro(res *repro.Result, stats *repro.Stats, hub bool) {
 	rep := res.Report
-	if err := mgr.reporter.Symbolize(rep); err != nil {
-		log.Logf(0, "failed to symbolize repro: %v", err)
-	}
 	opts := fmt.Sprintf("# %+v\n", res.Opts)
 	prog := res.Prog.Serialize()
 
@@ -948,7 +978,7 @@ func (mgr *Manager) getMinimizedCorpus() (corpus, repros [][]byte) {
 	return
 }
 
-func (mgr *Manager) addNewCandidates(candidates []rpctype.RPCCandidate) {
+func (mgr *Manager) addNewCandidates(candidates []rpctype.Candidate) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	mgr.candidates = append(mgr.candidates, candidates...)
@@ -968,11 +998,11 @@ func (mgr *Manager) minimizeCorpus() {
 			Context: inp,
 		})
 	}
-	newCorpus := make(map[string]rpctype.RPCInput)
+	newCorpus := make(map[string]rpctype.Input)
 	// Note: inputs are unsorted (based on map iteration).
 	// This gives some intentional non-determinism during minimization.
 	for _, ctx := range signal.Minimize(inputs) {
-		inp := ctx.(rpctype.RPCInput)
+		inp := ctx.(rpctype.Input)
 		newCorpus[hash.String(inp.Prog)] = inp
 	}
 	log.Logf(1, "minimized corpus: %v -> %v", len(mgr.corpus), len(newCorpus))
@@ -1057,12 +1087,12 @@ func (mgr *Manager) collectSyscallInfoUnlocked() map[string]*CallCov {
 }
 
 func (mgr *Manager) fuzzerConnect(modules []host.KernelModule) (
-	[]rpctype.RPCInput, BugFrames, map[uint32]uint32, []byte, error) {
+	[]rpctype.Input, BugFrames, map[uint32]uint32, []byte, error) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
 	mgr.minimizeCorpus()
-	corpus := make([]rpctype.RPCInput, 0, len(mgr.corpus))
+	corpus := make([]rpctype.Input, 0, len(mgr.corpus))
 	for _, inp := range mgr.corpus {
 		corpus = append(corpus, inp)
 	}
@@ -1098,7 +1128,7 @@ func (mgr *Manager) machineChecked(a *rpctype.CheckArgs, enabledSyscalls map[*pr
 	mgr.firstConnect = time.Now()
 }
 
-func (mgr *Manager) newInput(inp rpctype.RPCInput, sign signal.Signal) bool {
+func (mgr *Manager) newInput(inp rpctype.Input, sign signal.Signal) bool {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	if mgr.saturatedCalls[inp.Call] {
@@ -1124,14 +1154,14 @@ func (mgr *Manager) newInput(inp rpctype.RPCInput, sign signal.Signal) bool {
 	return true
 }
 
-func (mgr *Manager) candidateBatch(size int) []rpctype.RPCCandidate {
+func (mgr *Manager) candidateBatch(size int) []rpctype.Candidate {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-	var res []rpctype.RPCCandidate
+	var res []rpctype.Candidate
 	for i := 0; i < size && len(mgr.candidates) > 0; i++ {
 		last := len(mgr.candidates) - 1
 		res = append(res, mgr.candidates[last])
-		mgr.candidates[last] = rpctype.RPCCandidate{}
+		mgr.candidates[last] = rpctype.Candidate{}
 		mgr.candidates = mgr.candidates[:last]
 	}
 	if len(mgr.candidates) == 0 {

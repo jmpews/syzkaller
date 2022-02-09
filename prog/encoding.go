@@ -99,6 +99,7 @@ func (ctx *serializer) call(c *Call) {
 		switch kind := value.Kind(); kind {
 		case reflect.Int:
 			ctx.printf(": %d", value.Int())
+		case reflect.Bool:
 		default:
 			panic("unable to serialize call prop of type " + kind.String())
 		}
@@ -376,6 +377,8 @@ func (p *parser) parseCallProps() CallProps {
 			} else {
 				value.SetInt(intV)
 			}
+		case reflect.Bool:
+			value.SetBool(true)
 		default:
 			panic("unable to handle call props of type " + kind.String())
 		}
@@ -408,6 +411,8 @@ func (p *parser) parseArg(typ Type, dir Dir) (Arg, error) {
 	if r != "" {
 		if res, ok := arg.(*ResultArg); ok {
 			p.vars[r] = res
+		} else {
+			p.strictFailf("variable %v doesn't refers to a resource", r)
 		}
 	}
 	return arg, nil
